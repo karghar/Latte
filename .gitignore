@@ -1,0 +1,8 @@
+###Compiled haskell sources
+*.o
+*.hi
+*.info
+###DS Store
+.DS_Store
+###Compiled file
+latc_x86_64
