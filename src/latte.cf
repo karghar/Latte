@@ -1,0 +1,176 @@
+-- programs ------------------------------------------------
+
+entrypoints Program ;
+
+Prog.   Program ::= [TopDef] ;
+
+FnDef.	   TopDef ::= FuncDef ;
+ClassDef.  TopDef ::= "class" Ident CDef ;
+ClassDefExt.  TopDef ::= "class" Ident "extends" Ident CDef ;
+
+separator nonempty TopDef "" ;
+
+Arg. 	   Arg ::= Type Ident;
+separator  Arg "," ;
+
+-- function ------------------------------------------------
+
+FunDef.        FuncDef ::= Type Ident "(" [Arg] ")" Block ;
+
+
+-- class definitions ---------------------------------------
+
+ClassBlock.  CDef ::=  "{" [ClassElem] "}" ;
+ClassMeth.   ClassElem ::= FuncDef ;
+ClassAtr.    ClassElem ::= Type Ident ";" ;
+separator    ClassElem "" ;
+
+-- statements ----------------------------------------------
+
+Block.       Block ::= "{" [Stmt] "}" ;
+
+separator  Stmt "" ;
+
+Empty.     Stmt ::= ";" ;
+
+BStmt.     Stmt ::= Block ;
+
+Decl.      Stmt ::= Type [Item] ";" ;
+
+NoInit.    Item ::= Ident ;
+
+Init.      Item ::= Ident "=" Expr ;
+
+separator nonempty Item "," ;
+
+Ass.       Stmt ::= LValue "=" Expr  ";" ;
+
+Incr.      Stmt ::= LValue "++"  ";" ;
+
+Decr.      Stmt ::= LValue "--"  ";" ;      
+
+Ret.       Stmt ::= "return" Expr ";" ;
+
+VRet.      Stmt ::= "return" ";" ;
+
+Cond.      Stmt ::= "if" "(" Expr ")" Stmt  ;
+
+CondElse.  Stmt ::= "if" "(" Expr ")" Stmt "else" Stmt  ;
+
+While.     Stmt ::= "while" "(" Expr ")" Stmt ;
+
+For.       Stmt ::= "for" "(" Type Ident ":" Ident ")" Stmt;
+
+SExp.      Stmt ::= Expr  ";" ;
+
+-- Types ---------------------------------------------------
+
+Arr.       Type  ::= Type "[]" ;
+
+Int.       Type ::= "int" ;
+
+Str.       Type ::= "string" ;
+
+internal   Fun. Type ::= Type "(" [Type] ")" ;
+
+Bool.      Type ::= "boolean" ;
+
+Void.      Type ::= "void" ;
+
+Obj.       Type ::= Ident ;
+
+separator  Type "," ;
+
+-- Expressions ---------------------------------------------
+
+ECastNull.     Expr6 ::= "(" Type ")null" ;
+
+EAttrAccess.   Expr6 ::= AttrAccess ;
+
+EMthCall.      Expr6 ::= MethodCall ;
+
+EArrAccess.    Expr6 ::= ArrElemAccess ;
+
+EVar.          Expr6 ::= Ident ;
+
+ENewArr.       Expr6 ::= "new" Type "[" Expr "]" ;
+
+ENew.          Expr6 ::= "new" Ident ;
+
+ELitInt.       Expr6 ::= Integer ;
+
+ELitTrue.      Expr6 ::= "true" ;
+
+ELitFalse.     Expr6 ::= "false" ;
+
+EApp.          Expr6 ::= FunctionCall ;
+
+EString.       Expr6 ::= String ;
+
+Neg.           Expr5 ::= "-" Expr6 ;
+
+Not.           Expr5 ::= "!" Expr6 ;
+
+EMul.          Expr4 ::= Expr4 MulOp Expr5 ;
+
+EAdd.          Expr3 ::= Expr3 AddOp Expr4 ;
+
+ERel.          Expr2 ::= Expr2 RelOp Expr3 ;
+
+EAnd.          Expr1 ::= Expr2 "&&" Expr1 ;
+
+EOr.           Expr ::= Expr1 "||" Expr ;
+
+coercions      Expr 6 ;
+
+separator      Expr "," ;
+
+-- Objects & arrays calls ----------------------------------
+
+FunctionCall.    FunctionCall ::= Ident "(" [Expr] ")" ;
+
+ArrayElem.  ArrElemAccess ::= LValue "[" Expr "]" ;
+
+AttrAcc. AttrAccess ::= LValue "." Ident ;
+
+MCall.    MethodCall ::= LValue "." FunctionCall ;
+
+-- Left Values ---------------------------------------------
+
+LVFunCall.           LValue ::= FunctionCall ;
+LVMethodCall.        LValue ::= MethodCall ;
+LVJustIdent.         LValue ::= Ident ;
+LVArrayAcc.          LValue ::= ArrElemAccess ;
+LVAttrAcc.           LValue ::= AttrAccess ;
+
+-- operators -----------------------------------------------
+
+Plus.      AddOp ::= "+" ;
+
+Minus.     AddOp ::= "-" ;
+
+Times.     MulOp ::= "*" ;
+
+Div.       MulOp ::= "/" ;
+
+Mod.       MulOp ::= "%" ;
+
+LTH.       RelOp ::= "<" ;
+
+LE.        RelOp ::= "<=" ;
+
+GTH.       RelOp ::= ">" ;
+
+GE.        RelOp ::= ">=" ;
+
+EQU.       RelOp ::= "==" ;
+
+NE.        RelOp ::= "!=" ;
+
+-- comments ------------------------------------------------
+
+comment    "#" ;
+
+comment    "//" ;
+
+comment    "/*" "*/" ;

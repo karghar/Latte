@@ -2,6 +2,7 @@
 *.o
 *.hi
 *.info
+*.bak
 ###DS Store
 .DS_Store
 ###Compiled file
