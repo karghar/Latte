@@ -49,32 +49,21 @@ data Error
   | MainFunctionRetTypeMismatch
   | FunctionArgumentVoidType String
   | FunctionArgumentNameDuplicated String
+  | VariableAlreadyDefined String
   deriving (Eq, Ord, Show)
 
 
 evalTypes :: Program -> Either Error ()
 evalTypes prog =
     fmap (const ()) (runEval initStore (evalProg prog))
---evalTypes prog = do
---  res<- runEval initStore (evalProg prog)
---  return res
-
-
-
---
---compileProg :: Program -> Err String
---compileProg prog = do
---   (_, state) <- runEval initStore (evalProg prog)
---   return "ABBA"
---runEval:: Env -> Eval a -> (Either Error Env)
-
 
 runEval s e = evalState (runExceptT e) s
 
 initStore :: Env
 initStore = Env M.empty M.empty M.empty
 
-
+getIdent :: Ident -> String
+getIdent (Ident ident) = ident
 
 
 
@@ -84,6 +73,7 @@ validateFunction retType ident args = do
     args <- validateFunArgs args []
     return (ident, Fun retType args)
 
+--function arguments validation : no voids, no duplicates
 validateFunArgs :: [Arg] -> [String]-> Eval [Type]
 validateFunArgs [] _ = return []
 validateFunArgs ((Arg t (Ident ident)):args) visited =
@@ -104,7 +94,37 @@ alreadyVisited argName (arg:xs) =
         True
     else
         alreadyVisited argName xs
+--END BLOCK--
 
+
+-- BLOCK mapInserts Local global, classes -
+
+--TODO maybe empty unit return type, decide
+
+mapInsertLocalVar :: Ident -> Type -> Eval Env
+mapInsertLocalVar ident t = do
+    env <- get
+    let loc = locals env
+    case M.lookup ident loc of
+        Just (_) -> throwError (VariableAlreadyDefined (getIdent ident))
+        Nothing -> do
+            return (Env (globals env) (M.insert ident t loc) (classes env))
+
+mapInsertGlobalVar :: Ident -> Type -> Eval ()
+mapInsertGlobalVar ident t = do
+    env <- get
+    let glob = globals env
+    case M.lookup ident glob of
+        Just (_) -> throwError (VariableAlreadyDefined (getIdent ident))
+        Nothing -> do
+            put (Env (M.insert ident t glob) (locals env) (classes env))
+            return ()
+
+mapInsertClass :: Ident -> ClassDeff -> Eval Env
+mapInsertClass ident classDef = undefined
+
+
+-- END BLOCK
 
 
 
@@ -116,9 +136,12 @@ evalProg (Prog topdefs) = do
     validateMain topdefs
     checkWholeDefs topdefs
 
-prepareTopDefs :: [TopDef] -> Eval Env
-prepareTopDefs [] = get --return enviroment
-prepareTopDefs (FnDef(FunDef t ident args block):topDefs) = undefined
+prepareTopDefs :: [TopDef] -> Eval ()
+prepareTopDefs [] = return () --return enviroment
+prepareTopDefs (FnDef(FunDef retType ident args block):topDefs) = do
+    (ident, types) <- validateFunction retType ident args
+    return ()
+
 prepareTopDefs ((ClassDef ident classDef):topDefs) = undefined
 prepareTopDefs ((ClassDefExt ident parent classdef):topDefs) = undefined
 
