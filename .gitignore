@@ -5,5 +5,12 @@
 *.bak
 ###DS Store
 .DS_Store
+###Idea IDE
+.idea
 ###Compiled file
 latc_x86_64
+latc_86
+###Tests
+bad
+good
+extensions
