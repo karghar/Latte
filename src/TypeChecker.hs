@@ -13,6 +13,7 @@ import SkelLatte
 import PrintLatte
 import AbsLatte
 import Data.Int
+import Data.Bool
 import Control.Monad
 
 
@@ -46,6 +47,8 @@ data Error
   | MainFunctionMissing
   | MainFunctionArgsMismatch
   | MainFunctionRetTypeMismatch
+  | FunctionArgumentVoidType String
+  | FunctionArgumentNameDuplicated String
   deriving (Eq, Ord, Show)
 
 
@@ -71,6 +74,41 @@ runEval s e = evalState (runExceptT e) s
 initStore :: Env
 initStore = Env M.empty M.empty M.empty
 
+
+
+
+
+---- Validating functions and classes --
+validateFunction :: Type -> Ident -> [Arg] -> Eval (Ident, Type)
+validateFunction retType ident args = do
+    args <- validateFunArgs args []
+    return (ident, Fun retType args)
+
+validateFunArgs :: [Arg] -> [String]-> Eval [Type]
+validateFunArgs [] _ = return []
+validateFunArgs ((Arg t (Ident ident)):args) visited =
+    if (t == Void) then
+        throwError (FunctionArgumentVoidType ident)
+    else
+        if (alreadyVisited ident visited) then
+            throwError (FunctionArgumentNameDuplicated ident)
+        else do
+            rest <- validateFunArgs args (ident:visited)
+            return (t:rest)
+
+--funct to check duplicated in list of arguments
+alreadyVisited :: String -> [String] ->  Bool
+alreadyVisited argName [] = False
+alreadyVisited argName (arg:xs) =
+    if (argName == arg) then
+        True
+    else
+        alreadyVisited argName xs
+
+
+
+
+--- Evaluation of program -----
 evalProg :: Program -> Eval ()
 evalProg (Prog topdefs) = do
     env <- get
@@ -79,7 +117,11 @@ evalProg (Prog topdefs) = do
     checkWholeDefs topdefs
 
 prepareTopDefs :: [TopDef] -> Eval Env
-prepareTopDefs = undefined
+prepareTopDefs [] = get --return enviroment
+prepareTopDefs (FnDef(FunDef t ident args block):topDefs) = undefined
+prepareTopDefs ((ClassDef ident classDef):topDefs) = undefined
+prepareTopDefs ((ClassDefExt ident parent classdef):topDefs) = undefined
+
 --TODO wczytaj wszystkie klasy
 
 
