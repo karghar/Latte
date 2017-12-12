@@ -22,8 +22,8 @@ import qualified Data.Map as M
 type TypeError = String
 
 data ClassDeff = ClassDeff
-              { className ::  String
-              , parent :: Maybe (String)
+              { className ::  Ident
+              , parent :: Maybe (Ident)
               , attr :: M.Map Ident Type
               }
 
@@ -50,6 +50,7 @@ data Error
   | FunctionArgumentVoidType String
   | FunctionArgumentNameDuplicated String
   | VariableAlreadyDefined String
+  | ClassAlreadyDefined String
   deriving (Eq, Ord, Show)
 
 
@@ -73,6 +74,33 @@ validateFunction retType ident args = do
     args <- validateFunArgs args []
     return (ident, Fun retType args)
 
+
+validateClass :: Ident -> Maybe Ident -> CDef -> Eval (Ident, ClassDeff)
+validateClass name parent (ClassBlock classElems) =  do
+    env <- get
+    let clsDef = ClassDeff name parent M.empty
+    classDeff <- validateClassDef classElems clsDef
+    put env
+    return (name, classDeff)
+
+validateClassDef :: [ClassElem] -> ClassDeff -> Eval ClassDeff
+validateClassDef []  classDef = return classDef
+validateClassDef (ClassMeth(FunDef retType ident args block):rest) classDef = do
+  (funIdent, types) <- validateFunction retType ident args
+  env' <- mapInsertLocalVar funIdent types 
+  let attr' = M.insert funIdent types (attr classDef)
+  put env'
+  validateClassDef rest (ClassDeff (className classDef) (parent classDef) attr')
+
+validateClassDef ((ClassAtr t ident):rest) classDef = do
+  env' <- mapInsertLocalVar ident t
+  let attr' = M.insert ident t (attr classDef)
+  put env'
+  validateClassDef rest (ClassDeff (className classDef) (parent classDef) attr') 
+
+
+
+
 --function arguments validation : no voids, no duplicates
 validateFunArgs :: [Arg] -> [String]-> Eval [Type]
 validateFunArgs [] _ = return []
@@ -94,7 +122,7 @@ alreadyVisited argName (arg:xs) =
         True
     else
         alreadyVisited argName xs
---END BLOCK--
+--END BLOCK---
 
 
 -- BLOCK mapInserts Local global, classes -
@@ -110,6 +138,7 @@ mapInsertLocalVar ident t = do
         Nothing -> do
             return (Env (globals env) (M.insert ident t loc) (classes env))
 
+--no need to return env if it is a global variable --
 mapInsertGlobalVar :: Ident -> Type -> Eval ()
 mapInsertGlobalVar ident t = do
     env <- get
@@ -120,11 +149,16 @@ mapInsertGlobalVar ident t = do
             put (Env (M.insert ident t glob) (locals env) (classes env))
             return ()
 
-mapInsertClass :: Ident -> ClassDeff -> Eval Env
-mapInsertClass ident classDef = undefined
+mapInsertClass :: Ident -> ClassDeff -> Eval ()
+mapInsertClass ident classDef = do
+    env <- get
+    let cls = classes env
+    case M.lookup ident cls of
+        Just (_) -> throwError (ClassAlreadyDefined (getIdent ident))
+        Nothing -> do
+            put (Env (globals env) (locals env) (M.insert ident classDef cls))
 
-
--- END BLOCK
+-- END BLOCK INSERTS
 
 
 
@@ -140,12 +174,18 @@ prepareTopDefs :: [TopDef] -> Eval ()
 prepareTopDefs [] = return () --return enviroment
 prepareTopDefs (FnDef(FunDef retType ident args block):topDefs) = do
     (ident, types) <- validateFunction retType ident args
-    return ()
+    mapInsertGlobalVar ident types
+    prepareTopDefs topDefs
 
-prepareTopDefs ((ClassDef ident classDef):topDefs) = undefined
-prepareTopDefs ((ClassDefExt ident parent classdef):topDefs) = undefined
+prepareTopDefs ((ClassDef ident classDef):topDefs) = do
+    (className, clsDef) <- validateClass ident Nothing classDef
+    mapInsertClass className clsDef
+    prepareTopDefs topDefs
+prepareTopDefs ((ClassDefExt ident parent classDef):topDefs) = do
+    (className, clsDef) <- validateClass ident (Just parent) classDef
+    mapInsertClass className  clsDef
+    prepareTopDefs topDefs
 
---TODO wczytaj wszystkie klasy
 
 
 checkWholeDefs :: [TopDef] -> Eval ()

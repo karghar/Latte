@@ -1,6 +1,6 @@
 all: latte
 
-latte: ./src/Main.hs ./src/latte.cf
+latte: ./src/Main.hs ./src/TypeChecker.hs ./src/latte.cf
 #	cd src; bnfc Latte.cf
 #	cd src; happy -gca ParLatte.y
 #	cd src; alex -g LexLatte.x
