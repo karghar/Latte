@@ -14,6 +14,7 @@ import PrintLatte
 import AbsLatte
 import Data.Int
 import Data.Bool
+import Data.Graph
 import Control.Monad
 
 
@@ -51,6 +52,7 @@ data Error
   | FunctionArgumentNameDuplicated String
   | VariableAlreadyDefined String
   | ClassAlreadyDefined String
+  | CyclicClassInheritance
   deriving (Eq, Ord, Show)
 
 
@@ -160,14 +162,68 @@ mapInsertClass ident classDef = do
 
 -- END BLOCK INSERTS
 
+--- DEF check classes inheritance
 
+checkClassesInheritance :: Eval ()
+checkClassesInheritance = do
+  env <- get
+  let classes_ = M.elems (classes env)
+  let extractedEdges =  fmap extractClassesEdges classes_
+  edgesInt <- convertClassesToEdges extractedEdges  M.empty 0 []
+  let bounds = (0,  length classes_ + 1)
+  let graph = buildG bounds edgesInt
+  if (any (\x -> path graph x x) [0, length classes_ +1] == True) then
+      throwError (CyclicClassInheritance)
+  else
+    return ()
+
+
+extractClassesEdges :: ClassDeff -> (String, String)
+extractClassesEdges classDef = do
+  let myName = className classDef
+  case parent classDef of 
+    Just parentName -> (getIdent myName, getIdent parentName)
+    Nothing -> (getIdent myName, "object") 
+
+convertClassesToEdges :: [(String, String)] -> (M.Map String Int) -> Int -> [(Int, Int)] -> Eval [(Int, Int)]
+convertClassesToEdges [] edgeHashMap nextInt edgesIntArr = return edgesIntArr 
+convertClassesToEdges ((lhs,rhs):rest) edgeHashMap nextInt edgesIntArr = do
+  let (nextInt', edgeHashMap') =  insertEdgeIntoHashMap lhs edgeHashMap nextInt
+  let (nextInt'', edgeHashMap'') = insertEdgeIntoHashMap rhs edgeHashMap' nextInt'
+  case (M.lookup lhs edgeHashMap'') of
+    Just lhsInt -> do
+      case (M.lookup rhs edgeHashMap'') of
+        Just rhsInt -> 
+          convertClassesToEdges (rest) (edgeHashMap'') nextInt'' ((lhsInt, rhsInt):edgesIntArr)
+        Nothing ->
+          throwError (DummyError "not gonna happen")
+    Nothing -> 
+      throwError (DummyError "not gonna happen2")
+
+
+
+checkIfEdgePresent :: String -> (M.Map String Int) -> Bool
+checkIfEdgePresent edgeName edgeHashMap = 
+  case (M.lookup edgeName edgeHashMap) of
+      Just number -> True
+      Nothing -> False
+
+insertEdgeIntoHashMap :: String -> (M.Map String Int) -> Int -> (Int, M.Map String Int)
+insertEdgeIntoHashMap edgeName edgeHashMap nextInt = do
+  if ((checkIfEdgePresent edgeName edgeHashMap) == False) then do
+    let edgeHashMap' = M.insert edgeName nextInt edgeHashMap
+    (nextInt + 1, edgeHashMap')
+  else
+    (nextInt, edgeHashMap)
 
 --- Evaluation of program -----
 evalProg :: Program -> Eval ()
 evalProg (Prog topdefs) = do
     env <- get
-    prepared <- prepareTopDefs topdefs
+    prepareTopDefs topdefs
+    checkClassesInheritance
     validateMain topdefs
+
     checkWholeDefs topdefs
 
 prepareTopDefs :: [TopDef] -> Eval ()
