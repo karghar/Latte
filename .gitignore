@@ -7,9 +7,12 @@
 .DS_Store
 ###Idea IDE
 .idea
+### Stack
+stack.yaml
+.stack-work
 ###Compiled file
 latc_x86_64
-latc_86
+latc_x86
 ###Tests
 bad
 good

@@ -25,12 +25,18 @@ type TypeError = String
 data ClassDeff = ClassDeff
               { className ::  Ident
               , parent :: Maybe (Ident)
-              , attr :: M.Map Ident Type
+              , attrs :: M.Map Ident Type
+              , methods :: M.Map Ident Type
+              }
+
+data Context = Context 
+            { functions :: M.Map Ident Type
+            , attributes :: M.Map Ident Type
               }
 
 data Env = Env
-           { locals :: M.Map Ident Type
-           , globals :: M.Map Ident Type
+           { locals :: Context
+           , globals :: Context
            , classes :: M.Map Ident ClassDeff
            }
 type Eval = ExceptT (Error) (State Env)
@@ -63,7 +69,7 @@ evalTypes prog =
 runEval s e = evalState (runExceptT e) s
 
 initStore :: Env
-initStore = Env M.empty M.empty M.empty
+initStore = Env (Context M.empty M.empty) (Context M.empty M.empty) M.empty
 
 getIdent :: Ident -> String
 getIdent (Ident ident) = ident
@@ -80,25 +86,26 @@ validateFunction retType ident args = do
 validateClass :: Ident -> Maybe Ident -> CDef -> Eval (Ident, ClassDeff)
 validateClass name parent (ClassBlock classElems) =  do
     env <- get
-    let clsDef = ClassDeff name parent M.empty
+    let clsDef = ClassDeff name parent M.empty M.empty
     classDeff <- validateClassDef classElems clsDef
     put env
     return (name, classDeff)
 
 validateClassDef :: [ClassElem] -> ClassDeff -> Eval ClassDeff
 validateClassDef []  classDef = return classDef
+
 validateClassDef (ClassMeth(FunDef retType ident args block):rest) classDef = do
   (funIdent, types) <- validateFunction retType ident args
   env' <- mapInsertLocalVar funIdent types 
-  let attr' = M.insert funIdent types (attr classDef)
+  let methods' = M.insert funIdent types (methods classDef)
   put env'
-  validateClassDef rest (ClassDeff (className classDef) (parent classDef) attr')
+  validateClassDef rest (ClassDeff (className classDef) (parent classDef) (attrs classDef) methods')
 
 validateClassDef ((ClassAtr t ident):rest) classDef = do
   env' <- mapInsertLocalVar ident t
-  let attr' = M.insert ident t (attr classDef)
+  let attrs' = M.insert ident t (attrs classDef)
   put env'
-  validateClassDef rest (ClassDeff (className classDef) (parent classDef) attr') 
+  validateClassDef rest (ClassDeff (className classDef) (parent classDef) attrs' (methods classDef)) 
 
 
 
@@ -132,23 +139,53 @@ alreadyVisited argName (arg:xs) =
 --TODO maybe empty unit return type, decide
 
 mapInsertLocalVar :: Ident -> Type -> Eval Env
+mapInsertLocalVar ident (Fun retType types) = do
+    env <- get
+    let loc = locals env
+    let locFun = functions loc
+    let locAttrs = attributes loc
+    case M.lookup ident locFun of
+        Just (_) -> throwError (VariableAlreadyDefined (getIdent ident))
+        Nothing -> do
+            let locFun' = M.insert ident (Fun retType types) locFun
+            return (Env (globals env) (Context locFun' locAttrs) (classes env))
+
 mapInsertLocalVar ident t = do
     env <- get
     let loc = locals env
-    case M.lookup ident loc of
-        Just (_) -> throwError (VariableAlreadyDefined (getIdent ident))
-        Nothing -> do
-            return (Env (globals env) (M.insert ident t loc) (classes env))
+    let locAttrs = attributes loc
+    let locFun = functions loc
+    case M.lookup ident locAttrs of
+      Just (_) -> throwError (VariableAlreadyDefined (getIdent ident))
+      Nothing -> do
+        let locAttrs' = M.insert ident t locAttrs
+        return (Env (globals env) (Context locFun locAttrs') (classes env))
+
 
 --no need to return env if it is a global variable --
 mapInsertGlobalVar :: Ident -> Type -> Eval ()
+mapInsertGlobalVar ident (Fun retType types) = do
+    env <- get
+    let glob = globals env
+    let globFun = functions glob
+    let globAttrs = attributes glob
+    case M.lookup ident globFun of
+        Just (_) -> throwError (VariableAlreadyDefined (getIdent ident))
+        Nothing -> do
+            let globFun' = M.insert ident (Fun retType types) globFun
+            put (Env (Context globFun' globAttrs) (locals env) (classes env))
+            return ()
+
 mapInsertGlobalVar ident t = do
     env <- get
     let glob = globals env
-    case M.lookup ident glob of
+    let globFun = functions glob
+    let globAttrs = attributes glob
+    case M.lookup ident globAttrs of
         Just (_) -> throwError (VariableAlreadyDefined (getIdent ident))
         Nothing -> do
-            put (Env (M.insert ident t glob) (locals env) (classes env))
+            let globAttrs' = M.insert ident t globAttrs
+            put (Env (Context globFun globAttrs') (locals env) (classes env))
             return ()
 
 mapInsertClass :: Ident -> ClassDeff -> Eval ()
@@ -164,8 +201,15 @@ mapInsertClass ident classDef = do
 
 --- DEF check classes inheritance
 
+--TODO class method inheritance evalution
 checkClassesInheritance :: Eval ()
 checkClassesInheritance = do
+  checkClassesAcyclicInheritance
+
+
+
+checkClassesAcyclicInheritance :: Eval ()
+checkClassesAcyclicInheritance = do
   env <- get
   let classes_ = M.elems (classes env)
   let extractedEdges =  fmap extractClassesEdges classes_
@@ -216,6 +260,9 @@ insertEdgeIntoHashMap edgeName edgeHashMap nextInt = do
   else
     (nextInt, edgeHashMap)
 
+-- END BLOCK CLASS INHERITANCE EVALUTATOR
+
+
 --- Evaluation of program -----
 evalProg :: Program -> Eval ()
 evalProg (Prog topdefs) = do
@@ -223,8 +270,7 @@ evalProg (Prog topdefs) = do
     prepareTopDefs topdefs
     checkClassesInheritance
     validateMain topdefs
-
-    checkWholeDefs topdefs
+    checkTopDefs topdefs
 
 prepareTopDefs :: [TopDef] -> Eval ()
 prepareTopDefs [] = return () --return enviroment
@@ -244,21 +290,19 @@ prepareTopDefs ((ClassDefExt ident parent classDef):topDefs) = do
 
 
 
-checkWholeDefs :: [TopDef] -> Eval ()
-checkWholeDefs (def:topdefs) = do
+checkTopDefs :: [TopDef] -> Eval ()
+checkTopDefs (def:topdefs) = do
     env <- get
     checkTopDef def
     put env
-    checkWholeDefs topdefs
-checkWholeDefs [] = return ()
+    checkTopDefs topdefs
+checkTopDefs [] = return ()
 
 
 checkTopDef :: TopDef -> Eval ()
 checkTopDef (FnDef func) =
     checkFuncDef func
 checkTopDef (ClassDef name classDef) =
---zastanów sie czy nazwa parenta, czy wyciagamy parenta czy tylko nazwa
--- toposorta uzyj you fool
     checkClassDef name Nothing classDef
 checkTopDef (ClassDefExt name parent classDef) =
     checkClassDef name (Just parent) classDef
@@ -267,15 +311,34 @@ checkTopDef (ClassDefExt name parent classDef) =
 checkClassDef :: Ident -> Maybe Ident -> CDef -> Eval ()
 checkClassDef ident parentIdent classDef = undefined
 
-
+returnTypeName :: Ident
+returnTypeName = (Ident "__ret__")
 
 --TODO doprowadz chociaz do uzycia bloku
 checkFuncDef :: FuncDef -> Eval ()
-checkFuncDef (FunDef typ ident args block) = undefined
+checkFuncDef (FunDef retType ident args (Block stmts)) = do
+  retEnv <- mapInsertLocalVar returnTypeName retType
+  put retEnv
+  argsEnv <- checkArgsEnv args
+  put argsEnv
+  checkRetStmts stmts 
+  --now checkstatements, then check return block? of should it be other way
+  return ()
+
+checkArgsEnv :: [Arg] -> Eval Env
+checkArgsEnv [] = get
+checkArgsEnv ((Arg t ident):rest) = do
+  env <- mapInsertLocalVar ident t
+  put env
+  checkArgsEnv rest
+
+
+checkRetStmts :: [Stmt] -> Eval ()
+checkRetStmts = undefined
 
 
 
-
+---
 
 validateMain :: [TopDef] -> Eval ()
 validateMain [] = throwError MainFunctionMissing
