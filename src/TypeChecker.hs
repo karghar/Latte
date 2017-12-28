@@ -64,6 +64,8 @@ data Error
   | IncDecWrongType LValue
   | WrongRetType Type Type
   | VoidDeclarationType [Item]
+  | ClassNotDeclared Ident
+  | WrongArrayTypeDecl Type
   deriving (Eq, Ord, Show)
 
 
@@ -535,15 +537,27 @@ findType (EVar ident) =
 --check if type exists in scope
     return (Obj ident)
 
+findType (ENewArr (Arr Bool) exp) =
+    return (Arr Bool)
+findType (ENewArr (Arr Int) exp) =
+    return (Arr Int)
+findType (ENewArr (Arr Str) exp) = do
+    return (Arr Str)
+findType (ENewArr (Arr (Obj ident)) exp) = do
+    env <- get
+    case M.lookup ident (classes env) of
+        Just _ -> return (Arr (Obj ident))
+        Nothing -> throwError (ClassNotDeclared ident)
+findType (ENewArr (Arr t) exp) =
+    throwError (WrongArrayTypeDecl t)
 findType (ENewArr t exp) =
---check if type exists in scope
--- check expr type
---    checkType exp Int
-    return (Arr t)
+    throwError (WrongArrayTypeDecl t)
 
-findType (ENew ident) =
---check if type exists in scope
-    return (Obj ident)
+findType (ENew ident) = do
+    env <- get
+    case M.lookup ident (classes env) of
+        Just _ -> return (Obj ident)
+        Nothing -> throwError (ClassNotDeclared ident)
 findType (ELitInt n) =
     if ((fromIntegral (minBound :: Int32)) > n)
           && ((fromIntegral (maxBound :: Int32)) < n) then
