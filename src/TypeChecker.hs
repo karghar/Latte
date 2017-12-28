@@ -61,6 +61,9 @@ data Error
   | CyclicClassInheritance
   | VariableNotFoundInContext String
   | ReturnStmtMissing
+  | IncDecWrongType LValue
+  | WrongRetType Type Type
+  | VoidDeclarationType [Item]
   deriving (Eq, Ord, Show)
 
 
@@ -420,6 +423,8 @@ checkRetStmt _ =  do
 --    unless (retType == Void) (throwError ReturnStmtMissing)
 
 
+--DEF BLOCK checkStmt
+
 checkBlock :: Block -> Eval ()
 checkBlock (Block stmts) = do
   env <- get
@@ -437,36 +442,82 @@ checkStmts (stmt:rest) = do
   put env'
   checkStmts rest
 
---DEF BLOCK checkStmt
 checkStmt :: Stmt -> Eval Env
 checkStmt Empty = get
-checkStmt (BStmt (Block stmts)) = do
-    env <- get
-    checkStmts stmts
-    put env
-    return env
+checkStmt (BStmt block) = do
+    checkBlock block
+    get
 checkStmt (Decl t items) = undefined
     checkDeclList t items
-checkStmt (Ass lvalue exp) = undefined
-checkStmt (Incr lvalue) = undefined
-checkStmt (Decr lvalue) = undefined
-checkStmt (Ret expr) = undefined
-checkStmt (VRet) = undefined
-checkStmt (Cond exp stmt) = undefined
-checkStmt (CondElse exp stmt1 stmt2) = undefined
-checkStmt (While exp stmt) = undefined
+checkStmt (Ass lvalue exp) = do
+    expType <- findType exp
+    identType <- findIdentType lvalue
+    if (expType == identType) then get
+    else do
+        checkIfSubClass identType expType
+        get
+checkStmt (Incr lvalue) = do
+    lvalType <- findIdentType lvalue
+    unless (lvalType == Int) (throwError (IncDecWrongType lvalue))
+    get
+checkStmt (Decr lvalue) = do
+    lvalType <- findIdentType lvalue
+    unless (lvalType == Int) (throwError (IncDecWrongType lvalue))
+    get
+checkStmt (Ret expr) = do
+    expType <- findType expr
+    retType <- getReturnType
+    if (expType == retType) then get
+    else do
+        checkIfSubClass retType expType
+        get
+checkStmt (VRet) = do
+    retType <- getReturnType
+    unless (retType  == Void) (throwError (WrongRetType (retType) (Void)))
+    get
+checkStmt (Cond exp stmt) = do
+    checkType exp Bool
+    checkStmt stmt
+checkStmt (CondElse exp stmt1 stmt2) = do
+    checkType exp Bool
+    checkStmt stmt1
+    checkStmt stmt2
+checkStmt (While exp stmt) = do
+    checkType exp Bool
+    checkStmt stmt
+--TODO implement this sheet
 checkStmt (For t ident1 ident2 stmt) = undefined
-checkStmt (SExp exp) = undefined
-checkStmt _ = undefined
-
-
--- end block checkStmt
-
-
+checkStmt (SExp exp) = do
+    findType exp
+    get
 
 checkDeclList :: Type -> [Item] -> Eval Env
 checkDeclList _ [] = get
-checkDeclList t (item:items) = undefined
+checkDeclList t (item:items) = do
+    when (t == Void) (throwError (VoidDeclarationType (item:items)))
+    ident <- checkItem item t
+    env' <- mapInsertLocalVar ident t
+    put env'
+    checkDeclList t items
+
+-- end block checkStmt
+
+checkItem :: Item -> Type -> Eval Ident
+checkItem (NoInit ident) _ = return ident
+checkItem (Init ident exp) t = do
+    expType <- findType exp
+    if (expType == t) then
+        return ident
+    else do
+        checkIfSubClass t expType
+        return ident
+
+
+--TODO maybe optimize this fucking equal type or subclass
+
+findIdentType = undefined
+checkIfSubClass = undefined
+
 
 --DEF BLOCK findTYPE
 
