@@ -59,6 +59,8 @@ data Error
   | VariableAlreadyDefined String
   | ClassAlreadyDefined String
   | CyclicClassInheritance
+  | VariableNotFoundInContext String
+  | ReturnStmtMissing
   deriving (Eq, Ord, Show)
 
 
@@ -70,6 +72,8 @@ runEval s e = evalState (runExceptT e) s
 
 initStore :: Env
 initStore = Env (Context M.empty M.empty) (Context M.empty M.empty) M.empty
+
+emptyContext = Context M.empty M.empty
 
 getIdent :: Ident -> String
 getIdent (Ident ident) = ident
@@ -106,8 +110,6 @@ validateClassDef ((ClassAtr t ident):rest) classDef = do
   let attrs' = M.insert ident t (attrs classDef)
   put env'
   validateClassDef rest (ClassDeff (className classDef) (parent classDef) attrs' (methods classDef)) 
-
-
 
 
 --function arguments validation : no voids, no duplicates
@@ -197,6 +199,19 @@ mapInsertClass ident classDef = do
         Nothing -> do
             put (Env (globals env) (locals env) (M.insert ident classDef cls))
 
+
+mapLookUpLocalVar :: Ident -> Eval Type
+mapLookUpLocalVar ident = do
+  env <- get
+  let local = locals env
+  case M.lookup ident (attributes local) of
+    Just t -> return t
+    Nothing -> throwError (VariableNotFoundInContext (getIdent ident))
+
+
+
+
+
 -- END BLOCK INSERTS
 
 --- DEF check classes inheritance
@@ -272,6 +287,18 @@ evalProg (Prog topdefs) = do
     validateMain topdefs
     checkTopDefs topdefs
 
+--- def block validate main
+
+validateMain :: [TopDef] -> Eval ()
+validateMain [] = throwError MainFunctionMissing
+validateMain (FnDef(FunDef Int (Ident "main") [] _):_) = return ()
+validateMain (FnDef(FunDef _ (Ident "main") [] _):_) = throwError MainFunctionRetTypeMismatch
+validateMain (FnDef(FunDef _ (Ident "main") _ _):_) = throwError MainFunctionArgsMismatch
+validateMain (_:tl) = validateMain tl
+
+--end block 
+
+
 prepareTopDefs :: [TopDef] -> Eval ()
 prepareTopDefs [] = return () --return enviroment
 prepareTopDefs (FnDef(FunDef retType ident args block):topDefs) = do
@@ -314,6 +341,11 @@ checkClassDef ident parentIdent classDef = undefined
 returnTypeName :: Ident
 returnTypeName = (Ident "__ret__")
 
+
+getReturnType :: Eval Type
+getReturnType = mapLookUpLocalVar returnTypeName
+
+
 --TODO doprowadz chociaz do uzycia bloku
 checkFuncDef :: FuncDef -> Eval ()
 checkFuncDef (FunDef retType ident args (Block stmts)) = do
@@ -321,7 +353,9 @@ checkFuncDef (FunDef retType ident args (Block stmts)) = do
   put retEnv
   argsEnv <- checkArgsEnv args
   put argsEnv
-  checkRetStmts stmts 
+  checkRetStmts stmts
+  put argsEnv
+  checkBlock (Block stmts)
   --now checkstatements, then check return block? of should it be other way
   return ()
 
@@ -334,19 +368,107 @@ checkArgsEnv ((Arg t ident):rest) = do
 
 
 checkRetStmts :: [Stmt] -> Eval ()
-checkRetStmts = undefined
+checkRetStmts [] = do
+  retType <- getReturnType
+  unless (retType == Void) (throwError ReturnStmtMissing)
+checkRetStmts (x:[]) =
+    checkRetStmt x
+checkRetStmts (x:xs) = do
+    env <- (checkStmt x)
+    put env
+    checkRetStmts xs
 
 
 
----
+checkRetStmt :: Stmt -> Eval ()
 
-validateMain :: [TopDef] -> Eval ()
-validateMain [] = throwError MainFunctionMissing
-validateMain (FnDef(FunDef Int (Ident "main") [] _):_) = return ()
-validateMain (FnDef(FunDef _ (Ident "main") [] _):_) = throwError MainFunctionRetTypeMismatch
-validateMain (FnDef(FunDef _ (Ident "main") _ _):_) = throwError MainFunctionArgsMismatch
-validateMain (_:tl) = validateMain tl
+checkRetStmt (BStmt (Block stmts)) = do
+    env <- get
+    checkRetStmts stmts
+    put env
 
+checkRetStmt (Ret exp) = do
+    retType <- getReturnType
+    checkType exp retType
+    return ()
+checkRetStmt (Cond exp stmt) =
+    checkRetStmt stmt
+checkRetStmt (CondElse exp lhsStmt rhsStmt) = do
+    checkRetStmt lhsStmt
+    checkRetStmt rhsStmt
+checkRetStmt (While exp stmt) =
+    checkRetStmt stmt
+checkRetStmt (For typ ident1 ident2 stmt) =
+    checkRetStmt stmt
+
+--inconsequential statements in last block
+checkRetStmt _ =  do
+    retType <- getReturnType
+    unless (retType == Void) (throwError ReturnStmtMissing)
+--checkRetStmt (Decl typ [items]) = undefined
+--checkRetStmt (Ass lval exp) = undefined
+--checkRetStmt (Incr lval) = undefined
+--checkRetStmt (Decr lval) = undefined
+--checkRetStmt Empty =  do
+--    retType <- getReturnType
+--    unless (retType == Void) (throwError ReturnStmtMissing)
+--checkRetStmt VRet = do
+--    retType <- getReturnType
+--    unless (retType == Void) (throwError ReturnStmtMissing)
+--checkRetStmt (SExp exp) = do
+--    retType <- getReturnType
+--    unless (retType == Void) (throwError ReturnStmtMissing)
+
+
+checkBlock :: Block -> Eval ()
+checkBlock (Block stmts) = do
+  env <- get
+  let globalsFuncJoined  = M.union (functions (locals env)) (functions (globals env))
+  let globalsAttrJoined = M.union (attributes (locals env)) (attributes (globals env))
+  let envModified = (Env (Context globalsFuncJoined globalsAttrJoined) (emptyContext) (classes env))
+  put envModified
+  checkStmts stmts
+  put env
+
+checkStmts :: [Stmt] -> Eval ()
+checkStmts [] = return ()
+checkStmts (stmt:rest) = do
+  env' <- checkStmt stmt
+  put env'
+  checkStmts rest
+
+--DEF BLOCK checkStmt
+checkStmt :: Stmt -> Eval Env
+checkStmt Empty = get
+checkStmt (BStmt (Block stmts)) = do
+    env <- get
+    checkStmts stmts
+    put env
+    return env
+checkStmt (Decl t items) = undefined
+    checkDeclList t items
+checkStmt (Ass lvalue exp) = undefined
+checkStmt (Incr lvalue) = undefined
+checkStmt (Decr lvalue) = undefined
+checkStmt (Ret expr) = undefined
+checkStmt (VRet) = undefined
+checkStmt (Cond exp stmt) = undefined
+checkStmt (CondElse exp stmt1 stmt2) = undefined
+checkStmt (While exp stmt) = undefined
+checkStmt (For t ident1 ident2 stmt) = undefined
+checkStmt (SExp exp) = undefined
+checkStmt _ = undefined
+
+
+-- end block checkStmt
+
+
+
+checkDeclList :: Type -> [Item] -> Eval Env
+checkDeclList _ [] = get
+checkDeclList t (item:items) = undefined
+
+--DEF BLOCK findTYPE
 
 findType :: Expr -> Eval Type
 --TODO sprawdzenie czy taki typ istnieje
