@@ -66,6 +66,9 @@ data Error
   | VoidDeclarationType [Item]
   | ClassNotDeclared Ident
   | WrongArrayTypeDecl Type
+  | FunctionDeclMissing Ident
+  | FunctionCallWrongNumberOfArgs Ident Int Int
+  | FunctionArgsTypeMismatch Ident Type Type
   deriving (Eq, Ord, Show)
 
 
@@ -205,15 +208,52 @@ mapInsertClass ident classDef = do
             put (Env (globals env) (locals env) (M.insert ident classDef cls))
 
 
-mapLookUpLocalVar :: Ident -> Eval Type
+
+mapLookUpLocalVar :: Ident -> Eval (Maybe Type)
 mapLookUpLocalVar ident = do
-  env <- get
-  let local = locals env
-  case M.lookup ident (attributes local) of
-    Just t -> return t
-    Nothing -> throwError (VariableNotFoundInContext (getIdent ident))
+    env <- get
+    contextLookUpVar (locals env) ident
 
+mapLookUpGlobalVar :: Ident -> Eval (Maybe Type)
+mapLookUpGlobalVar ident = do
+    env <- get
+    contextLookUpVar (globals env) ident
 
+mapLookUpLocalFunc :: Ident -> Eval (Maybe Type)
+mapLookUpLocalFunc ident = do
+    env <- get
+    contextLookUpFunc (locals env) ident
+
+mapLookUpGlobalFunc :: Ident -> Eval (Maybe Type)
+mapLookUpGlobalFunc ident = do
+    env <- get
+    contextLookUpFunc (globals env) ident
+
+contextLookUpFunc :: Context -> Ident -> Eval (Maybe Type)
+contextLookUpFunc  context ident = do
+    return (M.lookup ident (functions context))
+
+contextLookUpVar :: Context -> Ident -> Eval (Maybe Type)
+contextLookUpVar context ident = do
+    return (M.lookup ident (attributes context))
+
+envLookUpVar :: Ident -> Eval (Maybe Type)
+envLookUpVar ident = do
+    localLookup <- mapLookUpLocalVar ident
+    case localLookup of
+        Just t -> return (Just t)
+        Nothing -> do
+            globalLookup <- mapLookUpGlobalVar ident
+            return globalLookup
+
+envLookUpFunc :: Ident -> Eval (Maybe Type)
+envLookUpFunc ident = do
+    localLookup <- mapLookUpLocalFunc ident
+    case localLookup of
+        Just t -> return (Just t)
+        Nothing -> do
+            globalLookup <- mapLookUpGlobalFunc ident
+            return globalLookup
 
 
 
@@ -348,8 +388,12 @@ returnTypeName = (Ident "__ret__")
 
 
 getReturnType :: Eval Type
-getReturnType = mapLookUpLocalVar returnTypeName
-
+getReturnType =  do
+    returnType <- (mapLookUpLocalVar returnTypeName)
+    case returnType of
+        Just t -> return t
+        Nothing -> throwError (VariableNotFoundInContext (getIdent returnTypeName))
+--throwError (VariableNotFoundInContext (getIdent ident))
 
 --TODO doprowadz chociaz do uzycia bloku
 checkFuncDef :: FuncDef -> Eval ()
@@ -533,10 +577,11 @@ findType (ECastNull t) =
 --arguments
 --findType (EArrAccess ArrElemAccess) =
 
-findType (EVar ident) =
---check if type exists in scope
-    return (Obj ident)
-
+findType (EVar ident) = do
+    env <- get
+    case M.lookup ident (classes env) of
+        Just _ -> return (Obj ident)
+        Nothing -> throwError (ClassNotDeclared ident)
 findType (ENewArr (Arr Bool) exp) =
     return (Arr Bool)
 findType (ENewArr (Arr Int) exp) =
@@ -571,10 +616,23 @@ findType (ELitTrue) =
 findType (ELitFalse) = return Bool
 
 
---findType (EApp (FunctionCall ident args)) =
+findType (EApp (FunctionCall ident args)) = do
+   func <- envLookUpFunc ident
+   case func of
+    Just (Fun retType argsTypes) -> do
+        if (length(args) /= length (argsTypes)) then
+            throwError (FunctionCallWrongNumberOfArgs (ident) (length(args)) ((length argsTypes)))
+        else do
+            argsTypesResolved <- mapM findType args
+            let zipped = zip argsTypesResolved argsTypes
+            validatePassedArgs ident zipped
+            return retType
+    Nothing -> throwError (FunctionDeclMissing ident)
 -- sprawdz czy funkcja defined
 -- sprawdz czy typ zwracany sie zgadza
+-- nie dam rady sprawdzic typu
 -- sprawdz czy typy argumentow sie zgadzaja
+-- walidacja argumentow hmm done
 
 
 findType (EString _) =
@@ -628,6 +686,16 @@ findEAndOr lhs rhs = do
     let throwMsg = (OrAndTypeError lhs rhs)
     unless cond  (throwError throwMsg)
     return joinedType
+
+
+validatePassedArgs :: Ident -> [(Type, Type)] -> Eval ()
+validatePassedArgs funIdent [] = return ()
+validatePassedArgs funIdent ((actual, expected):xs) =
+    if (actual /= expected) then
+        throwError (FunctionArgsTypeMismatch (funIdent) (actual) (expected))
+    else
+        validatePassedArgs funIdent xs
+
 
 checkType:: Expr -> Type -> Eval Type
 checkType exp expectedType = do
