@@ -42,9 +42,8 @@ data Env = Env
 type Eval = ExceptT (Error) (State Env)
 
 data Error
-  = TypeError Expr
-  | Redecl Ident
-  | DummyError String
+  =
+    DummyError String
   | IntOutofBounds Integer
   | SubstractionTypeError Expr
   | AdditionTypeError Expr
@@ -75,8 +74,40 @@ data Error
   | ExpectedObjectType Type
   | ClassAttrNotFound Type Ident
   | ArrayAttrUnsupported Ident
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord)
 
+instance Show Error where
+    show (DummyError str) = "Durny blad" ++ show str
+    show (IntOutofBounds integer) = "Integer is out of bounds" ++ show integer
+    show (SubstractionTypeError exp) = "Wrong type of substraction, expected int " ++ show exp
+    show (AdditionTypeError exp) = "Wrong type of addition, expected Int or String in " ++ show exp
+    show (ComparisonTypeError exp) ="Wrong type of Comparison, expected Int " ++ show exp
+    show (OrAndTypeError exp1 exp2) = "Wrong type in Or/And expression  between" ++ show exp1 ++ " and " ++ show exp2
+    show (TypeMismatch t1 t2) = "Expected type " ++ show t1 ++ "got type "++ show t2
+    show (MainFunctionMissing) = "Main function is missing"
+    show (MainFunctionArgsMismatch) = "Wrong amount of arguments in main function"
+    show (MainFunctionRetTypeMismatch) = "Wrong return type in main function"
+    show (FunctionArgumentVoidType str) = "Trying to pass void argument to function" ++ show str
+    show (FunctionArgumentNameDuplicated str) = "Duplicated argument names  in function" ++ show str
+    show (VariableAlreadyDefined str) = "Variable is already defined" ++ str
+    show (ClassAlreadyDefined str) = "Class is already defined" ++ str
+    show (CyclicClassInheritance) = "Cyclic class inheritance deteced"
+    show (VariableNotFoundInContext str) = " No such variable was found in context" ++ show str
+    show (ReturnStmtMissing) = "Return statement is missing"
+    show (IncDecWrongType  lvalue) = "Wrong value type is incremented/decremented" ++ show lvalue
+    show (WrongRetType t1 t2) = "Wrong return type: expected " ++ show t1 ++ " when actual is " ++ show t2
+    show (VoidDeclarationType items) = "One of declarations is void variable" ++ show items
+    show (VoidAttributeDeclaration ident) = "Void attribute declaration" ++ show ident
+    show (ClassNotDeclared ident) = "Class is not declared" ++ show ident
+    show (WrongArrayTypeDecl t) = "Wrong array type declaration" ++ show t
+    show (WrongNullCast t) = "Wrong null cast" ++ show t
+    show (FunctionDeclMissing ident) = "Function declaration is missing" ++ show ident
+    show (FunctionCallWrongNumberOfArgs ident int1 int2) = "Wrong number of arguments passed to function " ++ show ident ++ "expected " ++ show int1 ++ " got " ++ show int2
+    show (FunctionArgsTypeMismatch ident t1 t2) = "In function call there is arguments type mismatch, expected" ++ show t1 ++ " got " ++ show t2
+    show (ExpectedArrayType t) = "Expected array type, got " ++ show t
+    show (ExpectedObjectType t) = "Expected object type, got " ++ show t
+    show (ClassAttrNotFound t ident) = "Class Attribute was not found" ++ show t ++ " in class " ++ show ident
+    show (ArrayAttrUnsupported ident) = "This array attribute is not supported " ++ show ident
 
 evalTypes :: Program -> Either Error ()
 evalTypes prog =
