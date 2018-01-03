@@ -66,9 +66,14 @@ data Error
   | VoidDeclarationType [Item]
   | ClassNotDeclared Ident
   | WrongArrayTypeDecl Type
+  | WrongNullCast Type
   | FunctionDeclMissing Ident
   | FunctionCallWrongNumberOfArgs Ident Int Int
   | FunctionArgsTypeMismatch Ident Type Type
+  | ExpectedArrayType Type
+  | ExpectedObjectType Type
+  | ClassAttrNotFound Type Ident
+  | ArrayAttrUnsupported Ident
   deriving (Eq, Ord, Show)
 
 
@@ -206,6 +211,14 @@ mapInsertClass ident classDef = do
         Just (_) -> throwError (ClassAlreadyDefined (getIdent ident))
         Nothing -> do
             put (Env (globals env) (locals env) (M.insert ident classDef cls))
+
+envLookUpClass :: Ident -> Eval ClassDeff
+envLookUpClass clsName = do
+    env <- get
+    let cls = classes env
+    case M.lookup clsName cls of
+        Just clsDef -> return clsDef
+        Nothing -> throwError (ClassNotDeclared clsName)
 
 
 
@@ -381,7 +394,8 @@ checkTopDef (ClassDefExt name parent classDef) =
 
 
 checkClassDef :: Ident -> Maybe Ident -> CDef -> Eval ()
-checkClassDef ident parentIdent classDef = undefined
+checkClassDef ident (Just parentName) classDef = undefined
+checkClassDef ident Nothing classDef = undefined
 
 returnTypeName :: Ident
 returnTypeName = (Ident "__ret__")
@@ -497,17 +511,17 @@ checkStmt (Decl t items) = undefined
     checkDeclList t items
 checkStmt (Ass lvalue exp) = do
     expType <- findType exp
-    identType <- findIdentType lvalue
+    identType <- findLValueType lvalue
     if (expType == identType) then get
     else do
         checkIfSubClass identType expType
         get
 checkStmt (Incr lvalue) = do
-    lvalType <- findIdentType lvalue
+    lvalType <- findLValueType lvalue
     unless (lvalType == Int) (throwError (IncDecWrongType lvalue))
     get
 checkStmt (Decr lvalue) = do
-    lvalType <- findIdentType lvalue
+    lvalType <- findLValueType lvalue
     unless (lvalType == Int) (throwError (IncDecWrongType lvalue))
     get
 checkStmt (Ret expr) = do
@@ -561,21 +575,97 @@ checkItem (Init ident exp) t = do
 
 --TODO maybe optimize this fucking equal type or subclass
 
-findIdentType = undefined
-checkIfSubClass = undefined
+checkIfSubClass :: Type -> Type -> Eval ()
+checkIfSubClass (Obj lhs) (Obj rhs) = do
+    rhsDef <- envLookUpClass rhs
+    case (parent rhsDef)  of
+        Nothing -> throwError (TypeMismatch (Obj lhs) (Obj rhs))
+        Just parentName -> do
+            if lhs == parentName then
+                return ()
+            else
+                checkIfSubClass (Obj lhs) (Obj parentName)
+checkIfSubClass x y = throwError (TypeMismatch x y)
 
+combineClassMethods :: Ident -> (M.Map Ident Type) -> Eval (M.Map Ident Type)
+combineClassMethods ident map = do
+    clsDef <- envLookUpClass ident
+    let methodUnion = M.union (methods clsDef) map
+    case (parent clsDef) of
+        Just parentName -> do
+            combineClassMethods parentName methodUnion
+        Nothing -> return methodUnion
+
+combineClassAttrs :: Ident -> (M.Map Ident Type) -> Eval (M.Map Ident Type)
+combineClassAttrs ident map = do
+    clsDef <- envLookUpClass ident
+    let attrUnion = M.union (attrs clsDef) map
+    case (parent clsDef) of
+        Just parentName -> do
+            combineClassAttrs parentName attrUnion
+        Nothing -> return attrUnion
 
 --DEF BLOCK findTYPE
+findLValueType :: LValue -> Eval Type
+findLValueType (LVJustIdent ident) = getIdentType ident
+findLValueType (LVFunCall funcCall) = findType (EApp funcCall)
+findLValueType (LVMethodCall (MCall lval funcCall)) = do
+    typ <- findLValueType lval
+    case typ of
+        (Obj ident) -> do
+            clsDef <- envLookUpClass ident
+            classMethods <- combineClassMethods ident M.empty
+            env <- get
+            let loc = locals env
+            let localsMod = Context (M.union classMethods (functions loc)) (attributes loc)
+            let envMod = Env (localsMod) (globals env) (classes env)
+            put envMod
+            typ <- findType (EApp funcCall)
+            put env
+            return typ
+        _ -> throwError (DummyError "lel")
+findLValueType (LVArrayAcc (ArrayElem lval exp)) = do
+    typ <- findLValueType lval
+    expType <- findType exp
+    unless (expType == Int) (throwError (TypeMismatch expType Int))
+    case typ of
+        (Arr arrType) -> return arrType
+        _ -> throwError (ExpectedArrayType typ)
+findLValueType (LVAttrAcc (AttrAcc lval ident)) = do
+    typ <- findLValueType lval
+    case typ of
+        (Obj ident) -> do
+            clsDef <- envLookUpClass ident
+            classAttrs <- combineClassAttrs ident M.empty
+            case M.lookup ident classAttrs of
+                Just attrType -> return attrType
+                Nothing -> throwError (ClassAttrNotFound (Obj ident) ident)
+        _ -> throwError (ExpectedObjectType typ)
+
+
+
+getIdentType ident = undefined
 
 findType :: Expr -> Eval Type
 --TODO sprawdzenie czy taki typ istnieje
+findType (ECastNull (Obj ident)) = do
+    env <- get
+    case (M.lookup ident (classes env)) of
+        Just _ -> return (Obj ident)
+        Nothing -> throwError (ClassNotDeclared ident)
+
 findType (ECastNull t) =
-    return t
---findType (EAttrAccess AttrAccess) =
---findType (EMthCall MethodCall) =
---method in scope
---arguments
---findType (EArrAccess ArrElemAccess) =
+    throwError (WrongNullCast t)
+findType (EAttrAccess (AttrAcc lvalue ident)) = do
+    lvalType <- findLValueType lvalue
+    case lvalType of
+        (Arr t) -> do
+            case ident of
+                (Ident  "length") -> return Int
+                _ -> throwError (ArrayAttrUnsupported ident)
+        _ -> findLValueType  (LVAttrAcc (AttrAcc lvalue ident))
+findType (EMthCall methCall) = findLValueType (LVMethodCall methCall)
+findType (EArrAccess arrElemAcc) = findLValueType (LVArrayAcc arrElemAcc)
 
 findType (EVar ident) = do
     env <- get
@@ -677,7 +767,7 @@ findType (EAnd lhs rhs) =
 findType (EOr lhs rhs) =
     findEAndOr lhs rhs
 
-findType _ = throwError (DummyError "Lel fail")
+--findType _ = throwError (DummyError "Lel fail")
 
 
 findEAndOr lhs rhs = do
