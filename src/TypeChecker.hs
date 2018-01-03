@@ -276,11 +276,10 @@ envLookUpFunc ident = do
 
 --- DEF check classes inheritance
 
---TODO class method inheritance evalution
+--TODO class method inheritance evalution maybe?
 checkClassesInheritance :: Eval ()
 checkClassesInheritance = do
   checkClassesAcyclicInheritance
-
 
 
 checkClassesAcyclicInheritance :: Eval ()
@@ -524,7 +523,7 @@ checkStmt Empty = get
 checkStmt (BStmt block) = do
     checkBlock block
     get
-checkStmt (Decl t items) = undefined
+checkStmt (Decl t items) =
     checkDeclList t items
 checkStmt (Ass lvalue exp) = do
     expType <- findType exp
@@ -563,7 +562,22 @@ checkStmt (While exp stmt) = do
     checkType exp Bool
     checkStmt stmt
 --TODO implement this sheet
-checkStmt (For t ident1 ident2 stmt) = undefined
+--TODO something fucked up here
+checkStmt (For t ident1 ident2 stmt) = do
+    arrayExpType <- envLookUpVar ident2
+    case arrayExpType of
+        (Just typ) ->
+            case typ of
+                (Arr arrayT)  -> do
+                    unless (t == arrayT) (throwError (TypeMismatch t arrayT))
+                    env <- get
+                    env'<- mapInsertLocalVar ident1 t
+                    put env'
+                    checkStmt stmt
+                    put env
+                    return env
+                _ -> throwError (ExpectedArrayType typ)
+        Nothing -> throwError (VariableNotFoundInContext (getIdent ident2))
 checkStmt (SExp exp) = do
     findType exp
     get
@@ -660,8 +674,22 @@ findLValueType (LVAttrAcc (AttrAcc lval ident)) = do
         _ -> throwError (ExpectedObjectType typ)
 
 
+--TODO this is fucked up, further consideration needed
+getIdentType ident = do
+    env <- get
+    let classes_ = classes env
+    case M.lookup ident classes_ of
+        (Just classDef) -> return (Obj ident)
+        Nothing -> do
+            possibleVar <- envLookUpVar ident
+            case possibleVar of
+                Just varType -> return varType
+                Nothing -> do
+                    possibleFun <- envLookUpFunc ident
+                    case possibleFun of
+                        Just varType -> return varType
+                        Nothing -> throwError (VariableNotFoundInContext (getIdent ident))
 
-getIdentType ident = undefined
 
 findType :: Expr -> Eval Type
 --TODO sprawdzenie czy taki typ istnieje
