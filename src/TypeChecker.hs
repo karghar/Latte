@@ -64,6 +64,7 @@ data Error
   | IncDecWrongType LValue
   | WrongRetType Type Type
   | VoidDeclarationType [Item]
+  | VoidAttributeDeclaration Ident
   | ClassNotDeclared Ident
   | WrongArrayTypeDecl Type
   | WrongNullCast Type
@@ -119,6 +120,7 @@ validateClassDef (ClassMeth(FunDef retType ident args block):rest) classDef = do
   validateClassDef rest (ClassDeff (className classDef) (parent classDef) (attrs classDef) methods')
 
 validateClassDef ((ClassAtr t ident):rest) classDef = do
+  when (t == Void) (throwError (VoidAttributeDeclaration ident))
   env' <- mapInsertLocalVar ident t
   let attrs' = M.insert ident t (attrs classDef)
   put env'
@@ -394,8 +396,23 @@ checkTopDef (ClassDefExt name parent classDef) =
 
 
 checkClassDef :: Ident -> Maybe Ident -> CDef -> Eval ()
-checkClassDef ident (Just parentName) classDef = undefined
-checkClassDef ident Nothing classDef = undefined
+checkClassDef ident parentName (ClassBlock classElems) = do
+    classCombinedMethods <- combineClassMethods ident M.empty
+    classCombinedAttrs <- combineClassAttrs ident M.empty
+    env <- get
+    let loc = locals env
+    let localsMod = Context (M.union classCombinedMethods (functions loc)) (M.union classCombinedAttrs (attributes loc))
+    put (Env localsMod (globals env) (classes env))
+    checkClassElems classElems
+    put env
+
+checkClassElems :: [ClassElem] -> Eval ()
+checkClassElems [] = return ()
+checkClassElems ((ClassAtr typ ident):xs) = checkClassElems xs
+checkClassElems ((ClassMeth funDef):xs) = do
+    checkFuncDef funDef
+    checkClassElems xs
+
 
 returnTypeName :: Ident
 returnTypeName = (Ident "__ret__")
