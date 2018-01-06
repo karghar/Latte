@@ -321,7 +321,8 @@ checkClassesAcyclicInheritance = do
   edgesInt <- convertClassesToEdges extractedEdges  M.empty 0 []
   let bounds = (0,  length classes_ + 1)
   let graph = buildG bounds edgesInt
-  if (any (\x -> path graph x x) [0, length classes_ +1] == True) then
+  if (any (\x -> path graph x x) [0, length classes_ +1] == True) then do
+
       throwError (CyclicClassInheritance)
   else
     return ()

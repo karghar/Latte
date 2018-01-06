@@ -44,10 +44,12 @@ run v s = let ts = myLLexer s in case pProgram ts of
                                     Left error-> do
                                       hPutStrLn stderr $ "ERROR"
                                       --todoerrorprinting
-                                      putStrLn "ERROR"
+                                      putStrLn $ show error
                                       exitFailure
                                     Right _ -> do
                                       hPutStrLn stderr $ "OK"
+                                      putStrLn "OK"
+--                                      compileProg prog
 
 
 
@@ -74,6 +76,9 @@ main = do
   case args of
     ["--help"] -> usage
     [] -> getContents >>= run 2
+    (path:[]) -> readFile path >>= run 2
+    _ -> hPutStrLn stderr $ "Too many arguments"
+
 {-    "-s":fs -> mapM_ (runFile 0 pProgram) fs
     fs -> mapM_ (runFile 2 pProgram) fs-}
 
