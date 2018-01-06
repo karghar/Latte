@@ -16,7 +16,7 @@ import Data.Int
 import Data.Bool
 import Data.Graph
 import Control.Monad
-
+import Debug.Trace
 
 import qualified Data.Map as M
 
@@ -28,17 +28,27 @@ data ClassDeff = ClassDeff
               , attrs :: M.Map Ident Type
               , methods :: M.Map Ident Type
               }
-
+instance Show ClassDeff where
+    show classDeff = "className " ++ show (className classDeff) ++
+            "\n parent" ++ show (parent classDeff) ++ "\n" ++
+             "attrs " ++ show (attrs classDeff) ++ "\n" ++
+             "methods" ++ show (methods classDeff) ++ "end classdeff\n"
 data Context = Context 
             { functions :: M.Map Ident Type
             , attributes :: M.Map Ident Type
               }
+instance Show Context where
+    show con = "functions " ++ show (functions con)++ " attrs " ++ show (attributes con)
 
 data Env = Env
            { locals :: Context
            , globals :: Context
            , classes :: M.Map Ident ClassDeff
            }
+instance Show Env where
+    show env = "Env, locals  : \n" ++ show (locals env) ++
+        "\n globals "++ show (globals env) ++
+        "\n classDeffs" ++ show (classes env)
 type Eval = ExceptT (Error) (State Env)
 
 data Error
@@ -196,7 +206,7 @@ mapInsertLocalVar ident (Fun retType types) = do
         Just (_) -> throwError (VariableAlreadyDefined (getIdent ident))
         Nothing -> do
             let locFun' = M.insert ident (Fun retType types) locFun
-            return (Env (globals env) (Context locFun' locAttrs) (classes env))
+            return (Env (Context locFun' locAttrs) (globals env) (classes env))
 
 mapInsertLocalVar ident t = do
     env <- get
@@ -207,7 +217,7 @@ mapInsertLocalVar ident t = do
       Just (_) -> throwError (VariableAlreadyDefined (getIdent ident))
       Nothing -> do
         let locAttrs' = M.insert ident t locAttrs
-        return (Env (globals env) (Context locFun locAttrs') (classes env))
+        return (Env (Context locFun locAttrs') (globals env) (classes env))
 
 
 --no need to return env if it is a global variable --
@@ -221,7 +231,7 @@ mapInsertGlobalVar ident (Fun retType types) = do
         Just (_) -> throwError (VariableAlreadyDefined (getIdent ident))
         Nothing -> do
             let globFun' = M.insert ident (Fun retType types) globFun
-            put (Env (Context globFun' globAttrs) (locals env) (classes env))
+            put (Env (locals env) (Context globFun' globAttrs) (classes env))
             return ()
 
 mapInsertGlobalVar ident t = do
@@ -233,7 +243,7 @@ mapInsertGlobalVar ident t = do
         Just (_) -> throwError (VariableAlreadyDefined (getIdent ident))
         Nothing -> do
             let globAttrs' = M.insert ident t globAttrs
-            put (Env (Context globFun globAttrs') (locals env) (classes env))
+            put (Env (locals env) (Context globFun globAttrs') (classes env))
             return ()
 
 mapInsertClass :: Ident -> ClassDeff -> Eval ()
@@ -318,15 +328,23 @@ checkClassesAcyclicInheritance = do
   env <- get
   let classes_ = M.elems (classes env)
   let extractedEdges =  fmap extractClassesEdges classes_
+  traceShowM extractedEdges
   edgesInt <- convertClassesToEdges extractedEdges  M.empty 0 []
-  let bounds = (0,  length classes_ + 1)
+  let bounds = (0,  length classes_)
   let graph = buildG bounds edgesInt
-  if (any (\x -> path graph x x) [0, length classes_ +1] == True) then do
-
+--  traceShowM graph
+--  traceShowM bounds
+--  traceShowM (path graph 0 1)
+  if (any (\x -> selfCycle graph x) [0, length classes_] == True) then
       throwError (CyclicClassInheritance)
   else
     return ()
 
+selfCycle :: Graph -> Vertex -> Bool
+selfCycle graph x = do
+    let dest = reachable graph x
+    let reachableWithOutSelf = filter (\elem -> elem /= x) dest
+    any (\el -> path graph x el) reachableWithOutSelf
 
 extractClassesEdges :: ClassDeff -> (String, String)
 extractClassesEdges classDef = do
@@ -353,16 +371,19 @@ convertClassesToEdges ((lhs,rhs):rest) edgeHashMap nextInt edgesIntArr = do
 
 
 checkIfEdgePresent :: String -> (M.Map String Int) -> Bool
-checkIfEdgePresent edgeName edgeHashMap = 
+checkIfEdgePresent edgeName edgeHashMap = do
   case (M.lookup edgeName edgeHashMap) of
       Just number -> True
+--        trace ("True" ++ show (edgeHashMap) ++ " nazwa krawedzi " ++ edgeName)
       Nothing -> False
+--        trace ("Falsz" ++ show (edgeHashMap) ++ " nazwa krawedzi " ++ edgeName)
 
-insertEdgeIntoHashMap :: String -> (M.Map String Int) -> Int -> (Int, M.Map String Int)
+insertEdgeIntoHashMap :: String -> M.Map String Int -> Int -> (Int, M.Map String Int)
 insertEdgeIntoHashMap edgeName edgeHashMap nextInt = do
   if ((checkIfEdgePresent edgeName edgeHashMap) == False) then do
     let edgeHashMap' = M.insert edgeName nextInt edgeHashMap
     (nextInt + 1, edgeHashMap')
+--    trace ("Po wstawieniu " ++ show edgeHashMap ++ " nastepny int" ++ show nextInt ++ " krawedz wstawiona" ++ edgeName)
   else
     (nextInt, edgeHashMap)
 
@@ -411,18 +432,25 @@ prepareTopDefs ((ClassDefExt ident parent classDef):topDefs) = do
 checkTopDefs :: [TopDef] -> Eval ()
 checkTopDefs (def:topdefs) = do
     env <- get
+--    traceShowM ("sprawdzam topdefa")
     checkTopDef def
+--    traceShowM ("po sprawdzeniu")
     put env
     checkTopDefs topdefs
-checkTopDefs [] = return ()
+checkTopDefs [] = do
+--    traceShowM ("Skonczone topdefy")
+    return ()
 
 
 checkTopDef :: TopDef -> Eval ()
-checkTopDef (FnDef func) =
+checkTopDef (FnDef func) = do
+--    traceShowM ("spradzam Funkcje")
     checkFuncDef func
-checkTopDef (ClassDef name classDef) =
+checkTopDef (ClassDef name classDef) = do
+--    traceShowM ("spradzam klase bez rodzica")
     checkClassDef name Nothing classDef
-checkTopDef (ClassDefExt name parent classDef) =
+checkTopDef (ClassDefExt name parent classDef) = do
+--    traceShowM ("sprwadzam klase z rodzicem")
     checkClassDef name (Just parent) classDef
 
 
@@ -460,13 +488,17 @@ getReturnType =  do
 --TODO doprowadz chociaz do uzycia bloku
 checkFuncDef :: FuncDef -> Eval ()
 checkFuncDef (FunDef retType ident args (Block stmts)) = do
+  traceShowM ("checkFuncDef blok")
   retEnv <- mapInsertLocalVar returnTypeName retType
+--  traceShowM retEnv
   put retEnv
   argsEnv <- checkArgsEnv args
   put argsEnv
   checkRetStmts stmts
   put argsEnv
+  traceShowM ("sprawdzam blok")
   checkBlock (Block stmts)
+  traceShowM ("sprawdzilem")
   --now checkstatements, then check return block? of should it be other way
   return ()
 
@@ -502,8 +534,7 @@ checkRetStmt (Ret exp) = do
     retType <- getReturnType
     checkType exp retType
     return ()
-checkRetStmt (Cond exp stmt) =
-    checkRetStmt stmt
+checkRetStmt (Cond exp stmt) = checkRetStmt (CondElse exp stmt Empty)
 checkRetStmt (CondElse exp lhsStmt rhsStmt) = do
     checkRetStmt lhsStmt
     checkRetStmt rhsStmt
@@ -771,10 +802,10 @@ findType (ENew ident) = do
         Just _ -> return (Obj ident)
         Nothing -> throwError (ClassNotDeclared ident)
 findType (ELitInt n) =
-    if ((fromIntegral (minBound :: Int32)) > n)
-          && ((fromIntegral (maxBound :: Int32)) < n) then
+    if (((fromIntegral (minBound :: Int32)) < n)
+          && ((fromIntegral (maxBound :: Int32)) > n)) then
         return Int
-    else
+    else do
         throwError (IntOutofBounds n)
 
 findType (ELitTrue) =
