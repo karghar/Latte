@@ -13,6 +13,7 @@ import SkelLatte
 import PrintLatte
 import AbsLatte
 import TypeChecker
+import Compiler
 
 
 
@@ -43,11 +44,12 @@ run v s = let ts = myLLexer s in case pProgram ts of
                           case evalTypes tree of
                                     Left error-> do
                                       hPutStrLn stderr $ "ERROR"
-                                      --todoerrorprinting
                                       putStrLn $ show error
                                       exitFailure
                                     Right _ -> do
                                       hPutStrLn stderr $ "OK"
+                                      let compiledCode = compilationProcess tree
+                                      putStrLn compiledCode
                                       putStrLn "OK"
 --                                      compileProg prog
 

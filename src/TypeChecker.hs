@@ -128,6 +128,16 @@ runEval s e = evalState (runExceptT e) s
 initStore :: Env
 initStore = Env (Context M.empty M.empty) (Context M.empty M.empty) M.empty
 
+
+--mapInsertGlobalVar ident (Fun retType types) = do
+addPredefinedMethods :: Eval ()
+addPredefinedMethods = do
+    mapInsertGlobalVar (Ident "printInt") (Fun Void (Int:[]))
+    mapInsertGlobalVar (Ident "printString") (Fun Void (Str:[]))
+    mapInsertGlobalVar (Ident "error") (Fun Void [])
+    mapInsertGlobalVar (Ident "readInt") (Fun Int [])
+    mapInsertGlobalVar (Ident "readString") (Fun Str [])
+
 emptyContext = Context M.empty M.empty
 
 getIdent :: Ident -> String
@@ -328,7 +338,7 @@ checkClassesAcyclicInheritance = do
   env <- get
   let classes_ = M.elems (classes env)
   let extractedEdges =  fmap extractClassesEdges classes_
-  traceShowM extractedEdges
+--  traceShowM extractedEdges
   edgesInt <- convertClassesToEdges extractedEdges  M.empty 0 []
   let bounds = (0,  length classes_)
   let graph = buildG bounds edgesInt
@@ -393,6 +403,7 @@ insertEdgeIntoHashMap edgeName edgeHashMap nextInt = do
 --- Evaluation of program -----
 evalProg :: Program -> Eval ()
 evalProg (Prog topdefs) = do
+    addPredefinedMethods
     env <- get
     prepareTopDefs topdefs
     checkClassesInheritance
@@ -444,7 +455,6 @@ checkTopDefs [] = do
 
 checkTopDef :: TopDef -> Eval ()
 checkTopDef (FnDef func) = do
---    traceShowM ("spradzam Funkcje")
     checkFuncDef func
 checkTopDef (ClassDef name classDef) = do
 --    traceShowM ("spradzam klase bez rodzica")
@@ -479,13 +489,13 @@ returnTypeName = (Ident "__ret__")
 
 getReturnType :: Eval Type
 getReturnType =  do
-    returnType <- (mapLookUpLocalVar returnTypeName)
+    returnType <- envLookUpVar returnTypeName
     case returnType of
         Just t -> return t
         Nothing -> throwError (VariableNotFoundInContext (getIdent returnTypeName))
 --throwError (VariableNotFoundInContext (getIdent ident))
 
---TODO doprowadz chociaz do uzycia bloku
+
 checkFuncDef :: FuncDef -> Eval ()
 checkFuncDef (FunDef retType ident args (Block stmts)) = do
   traceShowM ("checkFuncDef blok")
@@ -496,7 +506,7 @@ checkFuncDef (FunDef retType ident args (Block stmts)) = do
   put argsEnv
   checkRetStmts stmts
   put argsEnv
-  traceShowM ("sprawdzam blok")
+  traceShowM ("sprawdzam blok funkcji" ++ show ident)
   checkBlock (Block stmts)
   traceShowM ("sprawdzilem")
   --now checkstatements, then check return block? of should it be other way
@@ -531,10 +541,15 @@ checkRetStmt (BStmt (Block stmts)) = do
     put env
 
 checkRetStmt (Ret exp) = do
+    env <- get
+--    traceShowM ("Env przy ret" ++ show env ++ show exp)
     retType <- getReturnType
     checkType exp retType
     return ()
 checkRetStmt (Cond exp stmt) = checkRetStmt (CondElse exp stmt Empty)
+
+checkRetStmt (CondElse ELitTrue lhsStmt _) = checkRetStmt lhsStmt
+checkRetStmt (CondElse ELitFalse _ rhsStmt) = checkRetStmt rhsStmt
 checkRetStmt (CondElse exp lhsStmt rhsStmt) = do
     checkRetStmt lhsStmt
     checkRetStmt rhsStmt
@@ -569,7 +584,7 @@ checkBlock (Block stmts) = do
   env <- get
   let globalsFuncJoined  = M.union (functions (locals env)) (functions (globals env))
   let globalsAttrJoined = M.union (attributes (locals env)) (attributes (globals env))
-  let envModified = (Env (Context globalsFuncJoined globalsAttrJoined) (emptyContext) (classes env))
+  let envModified = (Env (emptyContext) (Context globalsFuncJoined globalsAttrJoined)(classes env))
   put envModified
   checkStmts stmts
   put env
@@ -622,6 +637,7 @@ checkStmt (CondElse exp stmt1 stmt2) = do
     checkStmt stmt1
     checkStmt stmt2
 checkStmt (While exp stmt) = do
+--    traceShowM  ("While exp" ++  show(exp))
     checkType exp Bool
     checkStmt stmt
 --TODO implement this sheet
@@ -776,10 +792,10 @@ findType (EMthCall methCall) = findLValueType (LVMethodCall methCall)
 findType (EArrAccess arrElemAcc) = findLValueType (LVArrayAcc arrElemAcc)
 
 findType (EVar ident) = do
-    env <- get
-    case M.lookup ident (classes env) of
-        Just _ -> return (Obj ident)
-        Nothing -> throwError (ClassNotDeclared ident)
+    match <- envLookUpVar ident
+    case match of
+        Just typ -> return typ
+        Nothing -> throwError (VariableNotFoundInContext (getIdent ident))
 findType (ENewArr (Arr Bool) exp) =
     return (Arr Bool)
 findType (ENewArr (Arr Int) exp) =
@@ -860,14 +876,16 @@ findType exp@(EAdd lhs Minus rhs) = do
     return joinedType
 
 
-findType (ERel lhs EQU rhs) =
+findType (ERel lhs EQU rhs) = do
     checkType rhs =<< (findType lhs)
-findType (ERel lhs NE rhs) =
+    return Bool
+findType (ERel lhs NE rhs) = do
     checkType rhs =<< (findType lhs)
+    return Bool
 findType exp@(ERel lhs op rhs) = do
     joinedType <- checkType rhs =<< (findType lhs)
     unless (joinedType == Int) (throwError (ComparisonTypeError exp))
-    return joinedType
+    return Bool
 
 findType (EAnd lhs rhs) =
     findEAndOr lhs rhs
@@ -899,6 +917,9 @@ checkType:: Expr -> Type -> Eval Type
 checkType exp expectedType = do
     resType <- findType exp
     if (expectedType /= resType) then
+--        traceShowM resType
+--        traceShowM exp
+--        traceShowM expectedType
         throwError (TypeMismatch expectedType resType)
     else
         return resType
