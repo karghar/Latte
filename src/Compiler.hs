@@ -197,25 +197,35 @@ compileExp (ENew ident) = undefined
 compileExp (ENewArr typ exp) =undefined
 
 --TODO
-compileExp (EVar ident) = undefined
+compileExp (EVar ident) = do
+    cEnv <- get
+    typeIdent <- getExpType (EVar ident)
+    let env_ = env cEnv
+    case M.lookup ident env_ of
+        Just (place, typ) -> return $ push (getVariablePos place)
+        Nothing -> error "Shouldnt happen, lookup of variable identificator"
 
 
-compileExp (ELitInt int) = return $ instrL (push ("$" ++ show int))
-compileExp (ELitTrue) = return $ instrL (push "$1")
-compileExp (ELitFalse) = return $ instrL (push "$0")
+compileExp (ELitInt int) = return $ push ("$" ++ show int)
+compileExp (ELitTrue) = return $ push "$1"
+compileExp (ELitFalse) = return $ push "$0"
 compileExp (EApp (FunctionCall ident exprs)) = undefined --TODO
 compileExp (EString str) = do
     cEnv <- get
     let stringLabels = strings cEnv
     case M.lookup str stringLabels of
-        Just label -> error "SAS"
+        Just label -> return $ push ("$" ++ label)
         Nothing -> error ("Shouldnt happen, searching for string label:" ++ str)
 compileExp (Neg exp) = error "SAS"
 compileExp (Not exp) = error "SAS"
 compileExp (EMul lhsExp mulOp rhsExp) = do
     lhsCode <- compileExp lhsExp
     rhsCode <- compileExp rhsExp
-    undefined --TODO
+    let expCode = lhsCode ++ rhsCode
+    case mulOp of
+        Times -> return $ expCode ++ (pop eax) ++ "imul 0(%esp), %eax" ++ mov eax "0(%esp)"
+        Div -> return $ expCode ++ divideOp ++ push eax
+        Mod -> return $ expCode ++ divideOp ++ push edx
 
 compileExp (EAdd lhsExp Plus rhsExp) = do
     lhsCode <- compileExp lhsExp
@@ -242,6 +252,11 @@ concatStrings = unlines [
   "push eax"
   ]
 
+divideOp = pop ebx ++ pop eax ++ mov eax edx ++ instrL "sar $31, %edx"
+    ++ instrL "idiv %ebx"
+
+getVariablePos :: Int -> Code
+getVariablePos pos = show pos ++ "(%ebp)"
 
 --def block expType
 getExpType :: Expr -> Compile Type
