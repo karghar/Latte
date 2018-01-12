@@ -83,14 +83,24 @@ prepareFunctions (Prog topDefs) = do
     addBuiltInFunctions
     return ()
 
+--TODO not in basic mode
 prepareClasses :: Program -> Compile ()
-prepareClasses prog = undefined
+prepareClasses prog = return ()
 
-builtIns = [(Ident "__concatStrings", Void)]
 
 addBuiltInFunctions :: Compile ()
-addBuiltInFunctions = undefined
---TODO
+addBuiltInFunctions = do
+    cEnv <- get
+    let funcs = fEnv cEnv
+    let funcsMod = M.insert (Ident "concat") Void funcs
+    let funcsMod = M.insert (Ident "new_str") Str funcsMod
+    let funcsMod = M.insert (Ident "error") Void funcsMod
+    let funcsMod = M.insert (Ident "printInt") Void funcsMod
+    let funcsMod = M.insert (Ident "printString") Void funcsMod
+    let funcsMod = M.insert (Ident "readInt") Int funcsMod
+    let funcsMod = M.insert (Ident "readString") Str funcsMod
+    put (CEnv (env cEnv) (strings cEnv) (funcsMod) (clsEnv cEnv) (utils cEnv))
+
 
 prepareProgFunctions :: [TopDef] -> Compile ()
 prepareProgFunctions [] = return ()
@@ -106,7 +116,24 @@ prepareProgFunctions ((ClassDefExt _ _ _):rest) = prepareProgFunctions rest
 compileStringLabels :: Program -> Compile Code
 compileStringLabels prog = do
     let strings = getStrings prog
-    return "dummy" --TODO finish
+    stringsToLabels <- mapStrings strings 0
+    return $ ".data\n"  ++ stringsToLabels
+
+mapStrings :: [String] -> Int -> Compile String
+mapStrings [] _ = return ""
+mapStrings (string:rest) lab = do
+    cEnv <- get
+    let stringMap = strings cEnv
+    case M.lookup string stringMap of
+        Just label -> mapStrings rest lab
+        Nothing -> do
+           let stringLine = ".STR" ++ show lab ++ ":.string" ++ string ++ endOfLine
+           put (CEnv (env cEnv) (M.insert string (".STR" ++ show lab) stringMap) (fEnv cEnv) (clsEnv cEnv) (utils cEnv))
+           restStrings <- mapStrings rest (lab + 1)
+           return $ stringLine ++ restStrings
+
+
+
 
 --helper function for removing duplicates
 removeDuplicates :: [String] -> [String]
@@ -227,7 +254,7 @@ prepareFunArgs ((Arg typ ident):args) lastPos = do
 compileBlock :: Block -> Compile Code
 compileBlock (Block stmts) = do
     stackSizeForVars <- countVars stmts
-    let subEsp = sub esp ("$" ++ show stackSizeForVars)
+    let subEsp = sub ("$" ++ show stackSizeForVars) esp
     stmtsCodeArr <- mapM (compileStmt) stmts
     return $ subEsp ++ (concat stmtsCodeArr)
 
@@ -531,9 +558,9 @@ getLValue (LVAttrAcc attrAccess) = error "Attribute acces inaccessible in basic 
 
 
 concatStrings = unlines [
-  "call concatStrings",
-  "add esp, 8",
-  "push eax"
+  "call __concat",
+  "add $8, %esp",
+  "pop %eax"
   ]
 
 divideOp = pop ebx ++ pop eax ++ mov eax edx ++ instrL "sar $31, %edx"
