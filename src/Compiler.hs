@@ -59,7 +59,7 @@ prolog :: Code
 prolog = unlines [
                "section .text",
                "global main",
-               "extern printInt, printString, concatStrings, readInt, readString, initClass"
+               "extern printInt, printString, concatStrings, readInt, readString, initClass, concat"
                ]
 
 compilationProcess :: Program -> String
@@ -168,6 +168,7 @@ getStringsExp (EAnd lhsExp rhsExp) = (getStringsExp lhsExp) ++ (getStringsExp rh
 getStringsExp (EOr lhsExp rhsExp) = (getStringsExp lhsExp) ++ (getStringsExp rhsExp)
 getStringsExp _ = []
 
+--TODO ??
 getStringsLValue _ = []
 
 compileTopDefs :: [TopDef] -> Compile Code
@@ -256,7 +257,7 @@ countVarsStmt _ = return 0
 
 -- ifdef STMT
 compileStmt :: Stmt -> Compile Code
-compileStmt (Empty) = return ""
+compileStmt (Empty) = return "" --consider nop operation
 compileStmt (BStmt (Block stmts)) = do
     cEnv <- get
     stmtsCodeArr <- mapM (compileStmt) stmts
@@ -265,26 +266,113 @@ compileStmt (BStmt (Block stmts)) = do
     let modUtils = AsData (labelAfter) (stackSize $ utils $ cEnv) (tempLabel $ utils $ cEnv)
     put (CEnv (env cEnv) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (modUtils))
     return $ concat $ stmtsCodeArr
-compileStmt (Decl typ items) = undefined
-compileStmt (Ass lValue exp) = undefined
+compileStmt (Decl typ items) = do
+    declCode <- compileDecl typ items
+    return $ declCode
+compileStmt (Ass lValue exp) = do
+    variablePos <- getLValue lValue
+    expCode <- compileExp exp
+    let expValtoEax = pop eax
+    let varPosToEbx = pop ebx
+    let movValue = "mov %eax, (%ebx)"
+    return $ concat [variablePos, expValtoEax, varPosToEbx, movValue]
 compileStmt (Incr lValue) = do
     variablePos <- getLValue lValue
     return $ variablePos ++ (pop eax) ++ "\tadd $1 ,(%eax)\n"
 compileStmt (Decr lValue) = do
     variablePos <- getLValue lValue
     return $ variablePos ++ (pop eax) ++ "\tsub $1 ,(%eax)\n"
-compileStmt (Ret exp) = undefined
-compileStmt (VRet) = undefined
-compileStmt (Cond exp stmt) = undefined
-compileStmt (CondElse exp lhsStmt rhsStmt) = undefined
-compileStmt (While exp stmt) = undefined
+compileStmt (Ret exp) = do --when returning the result is in eax
+    expCode <- compileExp exp
+    return $ expCode ++ (pop eax) ++ functionLeave
+compileStmt (VRet) = return $ functionLeave
+compileStmt (Cond exp stmt) = do
+    labelInside <- getNewLabel
+    labelAfter <- getNewLabel
+    condExpCode <- compileBoolExp exp labelInside labelAfter
+    stmtCode <- compileStmt stmt
+    return $ condExpCode ++ (printLabel labelInside)
+        ++ stmtCode ++ (printLabel labelAfter)
+compileStmt (CondElse exp lhsStmt rhsStmt) = do
+    labelLhsStmt <- getNewLabel
+    labelRhsStmt <- getNewLabel
+    labelAfter <- getNewLabel
+    condExpCode <- compileBoolExp exp labelLhsStmt labelRhsStmt
+    lhsStmtCode <- compileStmt (BStmt (Block [lhsStmt]))
+    rhsStmtCode <- compileStmt (BStmt (Block [rhsStmt]))
+    return $ concat [condExpCode, (printLabel labelLhsStmt), lhsStmtCode,
+        (printLabel labelRhsStmt), rhsStmtCode, (printLabel labelAfter)]
+compileStmt (While exp stmt) = do
+    labelCond <- getNewLabel
+    labelStmt <- getNewLabel
+    labelAfter <- getNewLabel
+    condCode <- compileBoolExp exp labelStmt labelAfter
+    whileStmtCode <- compileStmt (BStmt (Block [stmt]))
+    return $ concat [(printLabel labelCond), condCode, (printLabel labelStmt)
+        , whileStmtCode, (jmp labelCond), (printLabel labelAfter)]
 compileStmt (For typ identElem identArr stmt) = error ("Not defined in basic version")
-compileStmt (SExp exp) = undefined
+compileStmt (SExp exp) = do
+    expCode <- compileExp exp
+    return $ expCode
 
 
 
 
 --enddef STMT
+
+---ifndef declaration block
+-- przypisz na wolne miejsca
+-- zmodyfikuj env
+-- zainicjuj
+--TDO po funckji wyzeruj stackSize
+
+compileDecl :: Type -> [Item] -> Compile Code
+compileDecl typ [] = return $ ""
+compileDecl typ ((NoInit ident):rest) = do
+    cEnv <- get
+    let lastTakenSize = stackSize $ utils $ cEnv
+    let typSize = getSize typ
+    let env_ = env cEnv
+    let popEax = pop eax
+    let popPos = pop ebx
+    case typ of
+        Int -> do
+            expCode <- compileExp (ELitInt 0) -- mov 0 pod ten adres i tyle
+            let posTaken = lastTakenSize - typSize
+            let modUtils = AsData (label $ utils $ cEnv) (posTaken) (tempLabel $ utils $ cEnv)
+            let movValue = "\tmov %eax, " ++ show posTaken ++ "(%ebp)\n"
+            put (CEnv (M.insert ident (posTaken, typ) env_) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (modUtils))
+            restCode <- compileDecl typ rest
+            return $ concat [expCode, popEax, movValue, restCode]
+
+        Str -> do
+            expCode <- compileExp (EString "")
+            let posTaken = lastTakenSize - typSize
+            let modUtils = AsData (label $ utils $ cEnv) (posTaken) (tempLabel $ utils $ cEnv)
+            let movValue = "\tmov %eax, " ++ show posTaken ++ "(%ebp)\n"
+            put (CEnv (M.insert ident (posTaken, typ) env_) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (modUtils))
+            restCode <- compileDecl typ rest
+            return $ concat [expCode, popEax, movValue, restCode]
+
+
+        _ -> error ("fatal initiation of not basic type shouldnt happen right now" ++ show ident)
+compileDecl typ ((Init ident exp):rest) = do
+    cEnv <- get
+    let lastTakenSize = stackSize $ utils $ cEnv
+    let typSize = getSize typ
+    let env_ = env cEnv
+    let popEax = pop eax
+    let popPos = pop ebx
+    expCode <- compileExp exp
+    let posTaken = lastTakenSize - typSize
+    let modUtils = AsData (label $ utils $ cEnv) (posTaken) (tempLabel $ utils $ cEnv)
+    let movValue = "\tmov %eax, " ++ show posTaken ++ "(%ebp)\n"
+    put (CEnv (M.insert ident (posTaken,typ ) env_) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (modUtils))
+    restCode <- compileDecl typ rest
+    return $ concat [expCode, popEax, movValue, restCode]
+
+
+--enddef declaration block
 
 
 --TODO DO OLANIA
@@ -314,16 +402,22 @@ compileExp (EApp (FunctionCall ident exprs)) = do
     let funcs = fEnv cEnv
     case M.lookup ident funcs of
         Just typ -> do
-            expsCodeArr <- mapM (compileExp) exprs
+            expsCodeArr <- mapM (compileExp) (reverse exprs)
             let expsCode = concat expsCodeArr
-            compileFunctionCall (ident) (expsCode)
+            let fnName = getFuncName ident
+            return $ concat [
+                expsCode,
+                "call __" ++  fnName ++ endOfLine,
+                "\tadd " ++ show (4 * (length exprs)) ++ ", %esp\n"
+                ]
         Nothing -> error ("Shouldnt happen, searching for function return type" ++ show ident)
 
 compileExp (EString str) = do
     cEnv <- get
     let stringLabels = strings cEnv
     case M.lookup str stringLabels of
-        Just label -> return $ push ("$" ++ label)
+        Just label -> do
+            return $ concat [ push  ("$" ++ label), call (Ident "new_str"), pop eax, push eax ]
         Nothing -> error ("Shouldnt happen, searching for string label:" ++ str)
 compileExp (Neg exp) = error "SAS"
 compileExp (Not exp) = do
@@ -351,7 +445,7 @@ compileExp (EAdd lhsExp Plus rhsExp) = do
             return $ expCode ++ concatStrings
         _ -> error "Shouldnt happen, shitty type when adding two exps"
 
---TODO different procedure for comparing strings
+--TODO different procedure for comparing strings, strings treated like in java
 compileExp exp@(ERel lhsExp relOp rhsExp) = do
     labelNext <- getNewLabel
     boolCode <- (compileBoolExp exp labelNext labelNext)
@@ -380,7 +474,7 @@ compileExp exp@(EOr lhsExp rhsExp) = do
     boolCode <- (compileBoolExp exp labelNext labelNext)
     return $ boolCode ++ (printLabel labelNext)
 
---TODO different procedure for comparing strings
+--TODO different procedure for comparing strings - nope we treat string like in java
 compileBoolExp :: Expr -> Code -> Code -> Compile Code
 compileBoolExp e lTrue lFalse = do
     case e of
@@ -416,10 +510,6 @@ compileBoolExp e lTrue lFalse = do
             return $ concat [expCode, popLhsVar, popRhsVar, cmpCode, cmpJump, pushTrue, gotoEnd, lFalseLabel
                 ,pushFalse, jmpFalse]
 
-compileFunctionCall :: Ident -> Code -> Compile Code
-compileFunctionCall = undefined
-
-
 
 getVariableStackPos :: Ident -> Compile Code
 getVariableStackPos ident = do
@@ -434,7 +524,7 @@ getLValue (LVFunCall funcCall) = compileExp (EApp funcCall)
 getLValue (LVMethodCall (MCall lval funcCall)) = error "Shouldnt happen right now"
 getLValue (LVJustIdent ident) = do
     stackPos <- getVariableStackPos ident
-    return $ "lea (ebp +" ++ stackPos ++ "), " ++ eax ++ "\n" ++ (push eax)
+    return $ "lea (%ebp +" ++ stackPos ++ "), " ++ eax ++ "\n" ++ (push eax)
 getLValue (LVArrayAcc arrElemAccess) = error "Array access inaccessible in basic mode"
 getLValue (LVAttrAcc attrAccess) = error "Attribute acces inaccessible in basic mode"
 
@@ -505,11 +595,15 @@ getLValueType (LVAttrAcc (AttrAcc lval ident)) = undefined
 
 -- def block utils
 
+
+getFuncName :: Ident -> Code
+getFuncName (Ident fnName) = fnName
+
 functionEntry :: Code
-functionEntry = "\tpush %ebp\n\tmov ebp, esp\n"
+functionEntry = "\tpush %ebp\n\tmov %ebp, %esp\n"
 
 functionLeave::Code
-functionLeave = "\t leave\n\tret\n"
+functionLeave = "\tleave\n\tret\n"
 
 getNewLabel :: Compile Code
 getNewLabel = do
@@ -549,7 +643,7 @@ instrL :: Code -> Code
 instrL inside = tabbed ++ inside ++ endOfLine
 tabbed = "\t"
 endOfLine = "\n"
-call (Ident str) = "call " ++ str
+call (Ident str) = instrL $ ("call " ++ str)
 push src = "push " ++ src
 pop src = instrL $ ("pop " ++ src)
 mov src dst = instrL $ ("mov " ++ src ++ ", " ++ dst)
