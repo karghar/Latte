@@ -182,9 +182,109 @@ compileTopDefs ((ClassDefExt ident parent cdef):rest) = compileTopDefs rest
 
 
 compileFunDef :: FuncDef -> Compile Code
-compileFunDef funDef = undefined
+compileFunDef (FunDef _ ident args block) = do
+    let functionStart = printGlobalFunLabel ident
+    cEnv <- get
+    prepareFunArgs (reverse args) 4 -- first 4 is occupied by return address
+    blockCode <- compileBlock block
+    cEnv' <- get
+    let lab = label $ utils $ cEnv'
+    let modUtils = AsData lab (stackSize $ utils $ cEnv) (tempLabel $ utils $ cEnv)
+    put (CEnv (env cEnv) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (modUtils))
+    let functionCode = functionStart ++ functionEntry ++ blockCode
+    lastStmtRet <- functionEndsWithRet block
+    if (lastStmtRet) then
+        return functionCode
+    else
+        return $ functionCode ++ functionLeave
+
+functionEndsWithRet :: Block -> Compile Bool
+functionEndsWithRet (Block stmts) =
+    if (length(stmts) == 0) then
+        return False
+    else do
+        let lastStmt = last stmts
+        case lastStmt of
+            VRet -> return True
+            Ret exp -> return True
+            _ -> return False
+
+--args are already reversed
+prepareFunArgs :: [Arg] -> Int -> Compile ()
+prepareFunArgs [] size = return ()
+prepareFunArgs ((Arg typ ident):args) lastPos = do
+    cEnv <- get
+    let argSize = getSize typ
+    let env_ = env cEnv
+    let argPos = lastPos + argSize
+    put (CEnv (M.insert ident (argPos,typ) env_) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (utils cEnv))
+    prepareFunArgs args argPos
 
 
+-- ifdef BLOCK utils
+
+compileBlock :: Block -> Compile Code
+compileBlock (Block stmts) = do
+    stackSizeForVars <- countVars stmts
+    let subEsp = sub esp ("$" ++ show stackSizeForVars)
+    stmtsCodeArr <- mapM (compileStmt) stmts
+    return $ subEsp ++ (concat stmtsCodeArr)
+
+countVars :: [Stmt] -> Compile Int
+countVars [] = return 0
+countVars (stmt:rest) = do
+    stmtSize <- countVarsStmt stmt
+    restSize <- countVars rest
+    let wholeSize = stmtSize + restSize
+    return wholeSize
+
+countVarsStmt :: Stmt -> Compile Int
+countVarsStmt (Decl typ items) = return $  (*) (getSize typ) (length items)
+countVarsStmt (Cond exp stmt) = countVarsStmt stmt
+countVarsStmt (CondElse exp lhsStmt rhsStmt) = do
+    lhsSize <- countVarsStmt lhsStmt
+    rhsSize <- countVarsStmt rhsStmt
+    return $ lhsSize + rhsSize
+countVarsStmt (While exp stmt) = countVarsStmt stmt
+countVarsStmt (BStmt (Block stmts)) = countVars stmts
+countVarsStmt (For _ _ _ _) = return 4
+countVarsStmt _ = return 0
+--TODO for FOR STMT add one variable possibly
+
+
+-- endblock BLOCK utils
+
+-- ifdef STMT
+compileStmt :: Stmt -> Compile Code
+compileStmt (Empty) = return ""
+compileStmt (BStmt (Block stmts)) = do
+    cEnv <- get
+    stmtsCodeArr <- mapM (compileStmt) stmts
+    cEnv' <- get
+    let labelAfter = label $ utils $ cEnv'
+    let modUtils = AsData (labelAfter) (stackSize $ utils $ cEnv) (tempLabel $ utils $ cEnv)
+    put (CEnv (env cEnv) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (modUtils))
+    return $ concat $ stmtsCodeArr
+compileStmt (Decl typ items) = undefined
+compileStmt (Ass lValue exp) = undefined
+compileStmt (Incr lValue) = do
+    variablePos <- getLValue lValue
+    return $ variablePos ++ (pop eax) ++ "\tadd $1 ,(%eax)\n"
+compileStmt (Decr lValue) = do
+    variablePos <- getLValue lValue
+    return $ variablePos ++ (pop eax) ++ "\tsub $1 ,(%eax)\n"
+compileStmt (Ret exp) = undefined
+compileStmt (VRet) = undefined
+compileStmt (Cond exp stmt) = undefined
+compileStmt (CondElse exp lhsStmt rhsStmt) = undefined
+compileStmt (While exp stmt) = undefined
+compileStmt (For typ identElem identArr stmt) = error ("Not defined in basic version")
+compileStmt (SExp exp) = undefined
+
+
+
+
+--enddef STMT
 
 
 --TODO DO OLANIA
@@ -209,7 +309,16 @@ compileExp (EVar ident) = do
 compileExp (ELitInt int) = return $ push ("$" ++ show int)
 compileExp (ELitTrue) = return $ push "$1"
 compileExp (ELitFalse) = return $ push "$0"
-compileExp (EApp (FunctionCall ident exprs)) = undefined --TODO
+compileExp (EApp (FunctionCall ident exprs)) = do
+    cEnv <- get
+    let funcs = fEnv cEnv
+    case M.lookup ident funcs of
+        Just typ -> do
+            expsCodeArr <- mapM (compileExp) exprs
+            let expsCode = concat expsCodeArr
+            compileFunctionCall (ident) (expsCode)
+        Nothing -> error ("Shouldnt happen, searching for function return type" ++ show ident)
+
 compileExp (EString str) = do
     cEnv <- get
     let stringLabels = strings cEnv
@@ -217,7 +326,10 @@ compileExp (EString str) = do
         Just label -> return $ push ("$" ++ label)
         Nothing -> error ("Shouldnt happen, searching for string label:" ++ str)
 compileExp (Neg exp) = error "SAS"
-compileExp (Not exp) = error "SAS"
+compileExp (Not exp) = do
+    labelNext <- getNewLabel
+    boolCode <- (compileBoolExp (Not exp) labelNext labelNext)
+    return $ boolCode ++ (printLabel labelNext)
 compileExp (EMul lhsExp mulOp rhsExp) = do
     lhsCode <- compileExp lhsExp
     rhsCode <- compileExp rhsExp
@@ -239,11 +351,93 @@ compileExp (EAdd lhsExp Plus rhsExp) = do
             return $ expCode ++ concatStrings
         _ -> error "Shouldnt happen, shitty type when adding two exps"
 
+--TODO different procedure for comparing strings
+compileExp exp@(ERel lhsExp relOp rhsExp) = do
+    labelNext <- getNewLabel
+    boolCode <- (compileBoolExp exp labelNext labelNext)
+    return $ boolCode ++ (printLabel labelNext)
+
+--previous  version - pain in the ass
+--    lhsCode <- compileExp lhsExp
+--    rhsCode <- compileExp rhsExp
+--    let cmp = "pop ebx\npop eax\ncmp eax, ebx\n"
+--    let expCode = lhsCode ++ rhsCode
+--    labTrue <- getNewLabel
+--    labEnd <- getNewLabel
+--    let relOpCode = getRelOpCode relOp
+--    let pushTrue = "push $1\n"
+--    let pushFalse = "push $0\n\tjmp"
+--    return $ expCode ++ cmp ++ relOpCode ++ labTrue ++ pushFalse ++ labEnd ++ endOfLine
+--            ++ (printLabel labTrue) ++ pushTrue ++ (printLabel labEnd)
+
+compileExp exp@(EAnd lhsExp rhsExp) = do
+    labelNext <- getNewLabel
+    boolCode <- (compileBoolExp exp labelNext labelNext)
+    return $ boolCode ++ (printLabel labelNext)
+
+compileExp exp@(EOr lhsExp rhsExp) = do
+    labelNext <- getNewLabel
+    boolCode <- (compileBoolExp exp labelNext labelNext)
+    return $ boolCode ++ (printLabel labelNext)
+
+--TODO different procedure for comparing strings
+compileBoolExp :: Expr -> Code -> Code -> Compile Code
+compileBoolExp e lTrue lFalse = do
+    case e of
+        ELitTrue -> return $ push "$1"
+        ELitFalse -> return $ push "$0"
+        Not exp -> compileBoolExp exp lFalse lTrue
+        EAnd lhsExp rhsExp -> do
+            lMid <- getNewLabel
+            lhsCode <- compileBoolExp lhsExp lMid lFalse
+            let lMidCode = printLabel lMid
+            rhsCode <- compileBoolExp rhsExp lTrue lFalse
+            return $ lhsCode ++ lMidCode ++ rhsCode
+        EOr lhsExp rhsExp -> do
+            lMid <- getNewLabel
+            lhsCode <- compileBoolExp lhsExp lTrue lMid
+            let lMidCode = printLabel lMid
+            rhsCode <- compileBoolExp rhsExp lTrue lFalse
+            return $ lhsCode ++ lMidCode ++ rhsCode
+        ERel lhsExp relOp rhsExp -> do
+            lPushFalse <- getNewLabel
+            lhsCode <- compileExp lhsExp
+            rhsCode <- compileExp rhsExp
+            let expCode = lhsCode ++ rhsCode
+            let popLhsVar = pop eax
+            let popRhsVar = pop ebx
+            let cmpCode = cmp eax ebx
+            let cmpJump = instrL ((getRelOpCode relOp) ++ lPushFalse)
+            let pushTrue = push "$1"
+            let gotoEnd = jmp lTrue
+            let lFalseLabel = printLabel lPushFalse
+            let pushFalse = push "$0"
+            let jmpFalse = jmp lFalse
+            return $ concat [expCode, popLhsVar, popRhsVar, cmpCode, cmpJump, pushTrue, gotoEnd, lFalseLabel
+                ,pushFalse, jmpFalse]
+
+compileFunctionCall :: Ident -> Code -> Compile Code
+compileFunctionCall = undefined
 
 
-compileExp (ERel lhsExp relOp rhsExp) = error "SAS"
-compileExp (EAnd rhsExp lhsExp) = error "SAS"
-compileExp (EOr rhsExp lhsExp) = error "SAS"
+
+getVariableStackPos :: Ident -> Compile Code
+getVariableStackPos ident = do
+    cEnv <- get
+    let env_ = env cEnv
+    case M.lookup ident env_ of
+        Just (place, typ) -> return $ show place
+        Nothing -> error ("Fatal error when retrieving ident position on stack" ++ show ident)
+
+getLValue :: LValue -> Compile Code
+getLValue (LVFunCall funcCall) = compileExp (EApp funcCall)
+getLValue (LVMethodCall (MCall lval funcCall)) = error "Shouldnt happen right now"
+getLValue (LVJustIdent ident) = do
+    stackPos <- getVariableStackPos ident
+    return $ "lea (ebp +" ++ stackPos ++ "), " ++ eax ++ "\n" ++ (push eax)
+getLValue (LVArrayAcc arrElemAccess) = error "Array access inaccessible in basic mode"
+getLValue (LVAttrAcc attrAccess) = error "Attribute acces inaccessible in basic mode"
+
 
 
 concatStrings = unlines [
@@ -301,13 +495,37 @@ getLValueType (LVJustIdent ident) = do
         Nothing -> error ("Shouldn't happen, searching for Lvalue Type" ++  show ident)
 getLValueType (LVFunCall funcCall) = getExpType (EApp funcCall)
 getLValueType (LVMethodCall (MCall lval funcCall)) = undefined
-findLValueType (LVArrayAcc (ArrayElem lval exp)) = undefined
-findLValueType (LVAttrAcc (AttrAcc lval ident)) = undefined
+getLValueType (LVArrayAcc (ArrayElem lval exp)) = undefined
+getLValueType (LVAttrAcc (AttrAcc lval ident)) = undefined
+
+
 
 -- endblock expType
 
 
 -- def block utils
+
+functionEntry :: Code
+functionEntry = "\tpush %ebp\n\tmov ebp, esp\n"
+
+functionLeave::Code
+functionLeave = "\t leave\n\tret\n"
+
+getNewLabel :: Compile Code
+getNewLabel = do
+    cEnv <- get
+    let util = utils cEnv
+    let lab = label util
+    let labinc = lab + 1
+    put (CEnv (env cEnv) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (AsData (labinc) (stackSize util) (tempLabel util)))
+    return $  "Label" ++  show lab
+
+printLabel :: Code -> Code
+printLabel label = label ++ ":" ++ endOfLine
+
+printGlobalFunLabel :: Ident -> Code
+printGlobalFunLabel (Ident ident) = "__" ++ ident ++ " :" ++ endOfLine
+
 eax = "%eax"
 ebx = "%ebx"
 ecx = "%ecx"
@@ -315,7 +533,18 @@ edx = "%edx"
 ebp = "%ebp"
 esp = "%esp"
 
+--reversed shit
+getRelOpCode :: RelOp -> Code
+getRelOpCode LE = "jge "
+getRelOpCode LTH = "jg "
+getRelOpCode GTH = "jle "
+getRelOpCode GE = "jl "
+getRelOpCode EQU = "jne "
+getRelOpCode NE = "je "
 
+
+instrGlobal :: Code -> Code
+instrGlobal inside = inside ++ endOfLine
 instrL :: Code -> Code
 instrL inside = tabbed ++ inside ++ endOfLine
 tabbed = "\t"
@@ -324,9 +553,11 @@ call (Ident str) = "call " ++ str
 push src = "push " ++ src
 pop src = instrL $ ("pop " ++ src)
 mov src dst = instrL $ ("mov " ++ src ++ ", " ++ dst)
-add lhs rhs = instrL $ ("add " ++ lhs ++ "," ++ rhs)
+add lhs rhs = instrL $ ("add " ++ lhs ++ ", " ++ rhs)
+sub lhs rhs = instrL $ ("sub " ++ lhs ++ ", " ++ rhs)
 test src dst = instrL $ ("test " ++ src ++ ", " ++ dst)
-jmp label = instrL $ ("jmp " ++ label)
+cmp src dst = instrL $ ("cmp " ++ src ++ ", " ++ dst)
+jmp label = instrL $ ("jmp " ++ printLabel(label))
 
 getSize :: Type -> Int
 getSize (Arr _) = 8
