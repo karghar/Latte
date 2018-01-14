@@ -26,9 +26,15 @@ int __readInt() {
 
 extern int _main();
 char* __concat(char* s1, char* s2) {
-	char* ret = malloc(strlen(s1) + strlen(s2) + 1);
-	strcpy(ret, s2);
-	strcat(ret, s1);
+	unsigned int l1 = strlen(s1);
+	unsigned int l2 = strlen(s2);
+	char* ret = malloc(l1 + l2 + 1);
+	if (ret == 0) {
+	        perror("malloc");
+	}
+	ret[l1+l2] = 0;
+	memcpy(ret, s1, l1);
+	memcpy(ret+l1, s2, l2);
 	return ret;
 }
 
