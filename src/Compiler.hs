@@ -310,9 +310,9 @@ compileStmt (Ass lValue exp) = do
     variablePos <- getLValue lValue
     expCode <- compileExp exp
     let expValtoEax = pop eax
-    let varPosToEbx = pop ebx
-    let movValue = "\tmov %eax, (%ebx)\n"
-    return $ concat [variablePos, expCode , expValtoEax, varPosToEbx, movValue]
+    let varPosToEcx = pop ecx
+    let movValue = "\tmov %eax, (%ecx)\n"
+    return $ concat [variablePos, expCode , expValtoEax, varPosToEcx, movValue]
 compileStmt (Incr lValue) = do
     variablePos <- getLValue lValue
     return $ variablePos ++ (pop eax) ++ "\tadd $1 ,(%eax)\n"
@@ -371,7 +371,7 @@ compileDecl typ ((NoInit ident):rest) = do
     let typSize = getSize typ
     let env_ = env cEnv
     let popEax = pop eax
-    let popPos = pop ebx
+    let popPos = pop ecx
     case typ of
         Int -> do
             expCode <- compileExp (ELitInt 0) -- mov 0 pod ten adres i tyle
@@ -399,7 +399,7 @@ compileDecl typ ((Init ident exp):rest) = do
     let typSize = getSize typ
     let env_ = env cEnv
     let popEax = pop eax
-    let popPos = pop ebx
+    let popPos = pop ecx
     expCode <- compileExp exp
     let posTaken = lastTakenSize - typSize
     let modUtils = AsData (label $ utils $ cEnv) (posTaken) (tempLabel $ utils $ cEnv)
@@ -495,7 +495,7 @@ compileExp (EAdd lhsExp Plus rhsExp) = do
 compileExp (EAdd lhsExp Minus rhsExp) = do
     lhsCode <- compileExp lhsExp
     rhsCode <- compileExp rhsExp
-    return $ concat [lhsCode, rhsCode, pop eax, pop ebx, sub eax ebx, push eax]
+    return $ concat [lhsCode, rhsCode, pop eax, pop ecx, sub eax ecx, push ecx]
 
 --TODO different procedure for comparing strings, strings treated like in java
 compileExp exp@(ERel lhsExp relOp rhsExp) = do
@@ -552,8 +552,8 @@ compileBoolExp e lTrue lFalse = do
             rhsCode <- compileExp rhsExp
             let expCode = lhsCode ++ rhsCode
             let popLhsVar = pop eax
-            let popRhsVar = pop ebx
-            let cmpCode = cmp eax ebx
+            let popRhsVar = pop ecx
+            let cmpCode = cmp eax ecx
             let cmpJump = instrL ((getRelOpCode relOp) ++ lPushFalse)
             let pushTrue = push "$1"
             let gotoEnd = jmp lTrue
@@ -564,7 +564,7 @@ compileBoolExp e lTrue lFalse = do
                 ,pushFalse, jmpFalse]
         _ -> do
             expCode <- compileExp e
-            return $ concat [expCode, pop eax, cmp eax "$0", jnz lTrue, jmp lFalse]
+            return $ concat [expCode, pop eax, cmp "$0" eax , jnz lTrue, jmp lFalse]
 
 
 getVariableStackPos :: Ident -> Compile Code
