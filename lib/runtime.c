@@ -24,11 +24,16 @@ int __readInt() {
 	return x;
 }
 
+extern int _main();
 char* __concat(char* s1, char* s2) {
 	char* ret = malloc(strlen(s1) + strlen(s2) + 1);
 	strcpy(ret, s2);
 	strcat(ret, s1);
 	return ret;
+}
+
+void _start() {
+        exit(_main());
 }
 
 char *__new_str(char *str) {

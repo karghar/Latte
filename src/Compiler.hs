@@ -1,6 +1,6 @@
 module Compiler where
 
-import Control.Monad.Trans.State
+import Control.Monad.State
 
 import System.IO ( stdin, hGetContents, hPutStrLn, stderr )
 import System.Environment ( getArgs, getProgName )
@@ -444,7 +444,7 @@ compileExp (EApp (FunctionCall ident exprs)) = do
             let fnName = getFuncName ident
             let fnCode = concat [
                                  expsCode,
-                                 "\tcall ___" ++  fnName ++ endOfLine,
+                                 "\tcall __" ++  fnName ++ endOfLine,
                                  "\tadd $" ++ show (4 * (length exprs)) ++ ", %esp\n"
                                  ]
             case typ of
@@ -588,7 +588,7 @@ getLValue (LVAttrAcc attrAccess) = error "Attribute acces inaccessible in basic 
 
 clearBoolExpFromStack = "add $4, %esp"
 concatStrings = unlines [
-  "\tcall ___concat",
+  "\tcall __concat",
   "\tadd 8, %esp",
   "\tpop %eax"
   ]
@@ -681,7 +681,7 @@ printGlobalFunLabel (Ident ident) =
     if (ident == "main") then
        ("_" ++ ident ++ ":" ++ endOfLine)
     else
-       ("___" ++ ident ++ ":" ++ endOfLine)
+       ("__" ++ ident ++ ":" ++ endOfLine)
 
 eax = "%eax"
 ebx = "%ebx"
