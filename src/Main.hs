@@ -56,13 +56,13 @@ run v path s  = let ts = myLLexer s in case pProgram ts of
                                       let directory = dropFileName path
                                       let compileBash = "ld -s -o " ++ outputFile ++ " -melf_i386 " ++  pathO ++ " ./lib/runtime.o -L. -l:lib/libc.a"
                                       writeFile pathS compiledCode
-				      let assemblyToOCmd = "as --32 " ++ pathS ++ " -o " ++ pathO 
+				                              let assemblyToOCmd = "as --32 " ++ pathS ++ " -o " ++ pathO 
                                       assemblerToO <- runCommand $ assemblyToOCmd
-				      putStrLn $ assemblyToOCmd
-				      waitForProcess assemblerToO
+				                              putStrLn $ assemblyToOCmd
+				                              waitForProcess assemblerToO
                                       putStrLn $ "Compile bash command: " ++ compileBash
                                       putStrLn $ "Path " ++ path
-				      putStrLn compileBash
+				                              putStrLn compileBash
                                       putStrLn compiledCode
                                       systemHandler <- runCommand $ compileBash
                                       waitForProcess systemHandler
