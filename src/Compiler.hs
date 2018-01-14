@@ -580,7 +580,7 @@ getLValue (LVFunCall funcCall) = compileExp (EApp funcCall)
 getLValue (LVMethodCall (MCall lval funcCall)) = error "Shouldnt happen right now"
 getLValue (LVJustIdent ident) = do
     stackPos <- getVariableStackPos ident
-    return $ "\tlea (%ebp + " ++ stackPos ++ "), " ++ eax ++ "\n" ++ (push eax)
+    return $ "\tlea " ++ stackPos ++ "(%ebp), " ++ eax ++ "\n" ++ (push eax)
 getLValue (LVArrayAcc arrElemAccess) = error "Array access inaccessible in basic mode"
 getLValue (LVAttrAcc attrAccess) = error "Attribute acces inaccessible in basic mode"
 
@@ -659,7 +659,7 @@ getFuncName :: Ident -> Code
 getFuncName (Ident fnName) = fnName
 
 functionEntry :: Code
-functionEntry = "\tpush %ebp\n\tmov %ebp, %esp\n"
+functionEntry = "\tpush %ebp\n\tmov %esp, %ebp\n"
 
 functionLeave::Code
 functionLeave = "\tleave\n\tret\n"
