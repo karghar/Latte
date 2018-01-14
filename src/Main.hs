@@ -53,7 +53,7 @@ run v path s  = let ts = myLLexer s in case pProgram ts of
                                       let outputFile = dropExtension path
                                       let pathS =  replaceExtension path "s"
                                       let directory = dropFileName path
-                                      let compileBash = "g++ -m32 -ggdb lib/runtime.o " ++ pathS ++ " -o " ++ outputFile
+                                      let compileBash = "gcc -m32 -ggdb lib/runtime.o " ++ pathS ++ " -o " ++ outputFile
                                       writeFile pathS compiledCode
                                       putStrLn $ "Compile bash command: " ++ compileBash
                                       putStrLn $ "Path " ++ path

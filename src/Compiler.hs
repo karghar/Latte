@@ -444,8 +444,8 @@ compileExp (EApp (FunctionCall ident exprs)) = do
             let fnName = getFuncName ident
             let fnCode = concat [
                                  expsCode,
-                                 "\tcall _" ++  fnName ++ endOfLine,
-                                 "\tadd " ++ show (4 * (length exprs)) ++ ", %esp\n"
+                                 "\tcall ___" ++  fnName ++ endOfLine,
+                                 "\tadd $" ++ show (4 * (length exprs)) ++ ", %esp\n"
                                  ]
             case typ of
                 Void -> return $ fnCode
@@ -460,7 +460,7 @@ compileExp (EString str) = do
     let stringLabels = strings cEnv
     case M.lookup str stringLabels of
         Just label -> do
-            return $ concat [ push  ("$" ++ label), call (Ident "_new_str"), pop eax, push eax ]
+            return $ concat [ push  ("$" ++ label), call (Ident "__new_str"), pop eax, push eax ]
         Nothing -> error ("Shouldnt happen, searching for string label:" ++ str)
 compileExp (Neg exp) = do
     expCode <- compileExp exp
@@ -586,9 +586,9 @@ getLValue (LVAttrAcc attrAccess) = error "Attribute acces inaccessible in basic 
 
 
 
-clearBoolExpFromStack = "add 4, %esp"
+clearBoolExpFromStack = "add $4, %esp"
 concatStrings = unlines [
-  "\tcall __concat",
+  "\tcall ___concat",
   "\tadd 8, %esp",
   "\tpop %eax"
   ]
@@ -677,7 +677,11 @@ printLabel :: Code -> Code
 printLabel label = "." ++ label ++ ":" ++ endOfLine
 
 printGlobalFunLabel :: Ident -> Code
-printGlobalFunLabel (Ident ident) = "_" ++ ident ++ " :" ++ endOfLine
+printGlobalFunLabel (Ident ident) =
+    if (ident == "main") then
+       ("_" ++ ident ++ ":" ++ endOfLine)
+    else
+       ("___" ++ ident ++ ":" ++ endOfLine)
 
 eax = "%eax"
 ebx = "%ebx"

@@ -2,16 +2,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-extern void printInt(int x) {
+void __printInt(int x) {
 	printf("%d\n", x);
 }
 
-extern void printString(char* s) {
+void __printString(char* s) {
 	printf("%s\n", s);
 }
 
 
-char* readString() {
+char* __readString() {
         char* ret;
         int default_size = 128;
         ret = malloc (default_size + 1);
@@ -20,9 +20,9 @@ char* readString() {
         return ret;
 }
 
-int readInt() {
+int __readInt() {
 	int x;
-	char* str = readString();
+	char* str = __readString();
 	sscanf(str, "%d", &x);
 
 	return x;
@@ -35,14 +35,14 @@ char* __concat(char* s1, char* s2) {
 	return ret;
 }
 
-char *new_str(char *str) {
+char *__new_str(char *str) {
 	size_t len = strlen(str);
 	char *mem = malloc(len + 1); // if mem == NULL to sie wysralo
 	memcpy(mem, str, len+1);
 	return mem;
 }
 
-void error() {
+void __error() {
 	printf("runtime error\n");
 	exit(1);
 }
