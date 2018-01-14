@@ -498,7 +498,7 @@ getReturnType =  do
 
 checkFuncDef :: FuncDef -> Eval ()
 checkFuncDef (FunDef retType ident args (Block stmts)) = do
-  traceShowM ("checkFuncDef blok")
+--  traceShowM ("checkFuncDef blok")
   retEnv <- mapInsertLocalVar returnTypeName retType
 --  traceShowM retEnv
   put retEnv
@@ -506,9 +506,9 @@ checkFuncDef (FunDef retType ident args (Block stmts)) = do
   put argsEnv
   checkRetStmts stmts
   put argsEnv
-  traceShowM ("sprawdzam blok funkcji" ++ show ident)
+--  traceShowM ("sprawdzam blok funkcji" ++ show ident)
   checkBlock (Block stmts)
-  traceShowM ("sprawdzilem")
+--  traceShowM ("sprawdzilem")
   --now checkstatements, then check return block? of should it be other way
   return ()
 

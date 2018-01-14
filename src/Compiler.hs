@@ -57,9 +57,7 @@ initAsData = AsData 0 0 0
 
 prolog :: Code
 prolog = unlines [
-               "section .text",
-               "global main",
-               "extern printInt, printString, concatStrings, readInt, readString, initClass, concat"
+               ".globl _main"
                ]
 
 compilationProcess :: Program -> String
@@ -72,7 +70,7 @@ compileProg prog = do
     prepareFunctions prog
     prepareClasses prog
     insides <- compileProgram prog
-    return strings
+    return $ strings ++ insides ++ endOfLine
 
 compileProgram :: Program -> Compile Code
 compileProgram (Prog topDefs) = compileTopDefs topDefs
@@ -93,13 +91,13 @@ addBuiltInFunctions = do
     cEnv <- get
     let funcs = fEnv cEnv
     let funcsMod = M.insert (Ident "concat") Void funcs
-    let funcsMod = M.insert (Ident "new_str") Str funcsMod
-    let funcsMod = M.insert (Ident "error") Void funcsMod
-    let funcsMod = M.insert (Ident "printInt") Void funcsMod
-    let funcsMod = M.insert (Ident "printString") Void funcsMod
-    let funcsMod = M.insert (Ident "readInt") Int funcsMod
-    let funcsMod = M.insert (Ident "readString") Str funcsMod
-    put (CEnv (env cEnv) (strings cEnv) (funcsMod) (clsEnv cEnv) (utils cEnv))
+    let funcsMod1 = M.insert (Ident "new_str") Str funcsMod
+    let funcsMod2 = M.insert (Ident "error") Void funcsMod1
+    let funcsMod3 = M.insert (Ident "printInt") Void funcsMod2
+    let funcsMod4 = M.insert (Ident "printString") Void funcsMod3
+    let funcsMod5 = M.insert (Ident "readInt") Int funcsMod4
+    let funcsMod6 = M.insert (Ident "readString") Str funcsMod5
+    put (CEnv (env cEnv) (strings cEnv) (funcsMod6) (clsEnv cEnv) (utils cEnv))
 
 
 prepareProgFunctions :: [TopDef] -> Compile ()
@@ -108,6 +106,7 @@ prepareProgFunctions ((FnDef (FunDef t ident _ _)):rest) = do
     cEnv <- get
     let funcEnv = fEnv cEnv
     put (CEnv (env cEnv) (strings cEnv) (M.insert ident t funcEnv) (clsEnv cEnv) (utils cEnv))
+    prepareProgFunctions rest
 prepareProgFunctions ((ClassDef _ _ ):rest) = prepareProgFunctions rest
 prepareProgFunctions ((ClassDefExt _ _ _):rest) = prepareProgFunctions rest
 
@@ -115,9 +114,14 @@ prepareProgFunctions ((ClassDefExt _ _ _):rest) = prepareProgFunctions rest
 -- strings extraction part --
 compileStringLabels :: Program -> Compile Code
 compileStringLabels prog = do
+--    traceShowM ("Jestem w compileStringLabels")
     let strings = getStrings prog
+--    traceShowM ("Strings" ++ show strings)
     stringsToLabels <- mapStrings strings 0
-    return $ ".data\n"  ++ stringsToLabels
+    if (length(stringsToLabels) /= 0) then
+        return $ ".data\n"  ++ stringsToLabels
+    else
+        return $ ""
 
 mapStrings :: [String] -> Int -> Compile String
 mapStrings [] _ = return ""
@@ -127,7 +131,7 @@ mapStrings (string:rest) lab = do
     case M.lookup string stringMap of
         Just label -> mapStrings rest lab
         Nothing -> do
-           let stringLine = ".STR" ++ show lab ++ ":.string" ++ string ++ endOfLine
+           let stringLine = ".STR" ++ show lab ++ ":\n\t.string \"" ++ string ++ "\"" ++ endOfLine
            put (CEnv (env cEnv) (M.insert string (".STR" ++ show lab) stringMap) (fEnv cEnv) (clsEnv cEnv) (utils cEnv))
            restStrings <- mapStrings rest (lab + 1)
            return $ stringLine ++ restStrings
@@ -201,7 +205,9 @@ getStringsLValue _ = []
 compileTopDefs :: [TopDef] -> Compile Code
 compileTopDefs [] = return ""
 compileTopDefs ((FnDef funDef):rest) = do
+--    traceShowM ("Parsing function " ++ show funDef)
     funDef <- compileFunDef funDef
+--    traceShowM ("Parsed function moving to rest")
     rest <- compileTopDefs rest
     return $ funDef ++ rest
 --TODO classes not done
@@ -214,7 +220,9 @@ compileFunDef (FunDef _ ident args block) = do
     let functionStart = printGlobalFunLabel ident
     cEnv <- get
     prepareFunArgs (reverse args) 4 -- first 4 is occupied by return address
+--    traceShowM ("Parsed function args")
     blockCode <- compileBlock block
+--    traceShowM ("After block")
     cEnv' <- get
     let lab = label $ utils $ cEnv'
     let modUtils = AsData lab (stackSize $ utils $ cEnv) (tempLabel $ utils $ cEnv)
@@ -254,8 +262,10 @@ prepareFunArgs ((Arg typ ident):args) lastPos = do
 compileBlock :: Block -> Compile Code
 compileBlock (Block stmts) = do
     stackSizeForVars <- countVars stmts
+--    traceShowM ("Counting vars")
     let subEsp = sub ("$" ++ show stackSizeForVars) esp
     stmtsCodeArr <- mapM (compileStmt) stmts
+--    traceShowM ("compiling stmts")
     return $ subEsp ++ (concat stmtsCodeArr)
 
 countVars :: [Stmt] -> Compile Int
@@ -301,8 +311,8 @@ compileStmt (Ass lValue exp) = do
     expCode <- compileExp exp
     let expValtoEax = pop eax
     let varPosToEbx = pop ebx
-    let movValue = "mov %eax, (%ebx)"
-    return $ concat [variablePos, expValtoEax, varPosToEbx, movValue]
+    let movValue = "\tmov %eax, (%ebx)\n"
+    return $ concat [variablePos, expCode , expValtoEax, varPosToEbx, movValue]
 compileStmt (Incr lValue) = do
     variablePos <- getLValue lValue
     return $ variablePos ++ (pop eax) ++ "\tadd $1 ,(%eax)\n"
@@ -432,21 +442,31 @@ compileExp (EApp (FunctionCall ident exprs)) = do
             expsCodeArr <- mapM (compileExp) (reverse exprs)
             let expsCode = concat expsCodeArr
             let fnName = getFuncName ident
-            return $ concat [
-                expsCode,
-                "call __" ++  fnName ++ endOfLine,
-                "\tadd " ++ show (4 * (length exprs)) ++ ", %esp\n"
-                ]
-        Nothing -> error ("Shouldnt happen, searching for function return type" ++ show ident)
+            let fnCode = concat [
+                                 expsCode,
+                                 "\tcall _" ++  fnName ++ endOfLine,
+                                 "\tadd " ++ show (4 * (length exprs)) ++ ", %esp\n"
+                                 ]
+            case typ of
+                Void -> return $ fnCode
+                _ -> return $ fnCode ++ (push eax)
+
+        Nothing -> do
+            traceShowM ("Functions env" ++ show funcs)
+            error ("Shouldnt happen, searching for function ident" ++ show ident ++ show funcs)
 
 compileExp (EString str) = do
     cEnv <- get
     let stringLabels = strings cEnv
     case M.lookup str stringLabels of
         Just label -> do
-            return $ concat [ push  ("$" ++ label), call (Ident "new_str"), pop eax, push eax ]
+            return $ concat [ push  ("$" ++ label), call (Ident "_new_str"), pop eax, push eax ]
         Nothing -> error ("Shouldnt happen, searching for string label:" ++ str)
-compileExp (Neg exp) = error "SAS"
+compileExp (Neg exp) = do
+    expCode <- compileExp exp
+    let popEax = pop eax
+    let negate = instrL "neg %eax"
+    return $ expCode ++ popEax ++ negate ++ (push eax)
 compileExp (Not exp) = do
     labelNext <- getNewLabel
     boolCode <- (compileBoolExp (Not exp) labelNext labelNext)
@@ -456,7 +476,7 @@ compileExp (EMul lhsExp mulOp rhsExp) = do
     rhsCode <- compileExp rhsExp
     let expCode = lhsCode ++ rhsCode
     case mulOp of
-        Times -> return $ expCode ++ (pop eax) ++ "imul 0(%esp), %eax" ++ mov eax "0(%esp)"
+        Times -> return $ expCode ++ (pop eax) ++ instrL("imul 0(%esp), %eax") ++ mov eax "0(%esp)"
         Div -> return $ expCode ++ divideOp ++ push eax
         Mod -> return $ expCode ++ divideOp ++ push edx
 
@@ -471,6 +491,11 @@ compileExp (EAdd lhsExp Plus rhsExp) = do
         Str ->
             return $ expCode ++ concatStrings
         _ -> error "Shouldnt happen, shitty type when adding two exps"
+
+compileExp (EAdd lhsExp Minus rhsExp) = do
+    lhsCode <- compileExp lhsExp
+    rhsCode <- compileExp rhsExp
+    return $ concat [lhsCode, rhsCode, pop eax, pop ebx, sub eax ebx, push eax]
 
 --TODO different procedure for comparing strings, strings treated like in java
 compileExp exp@(ERel lhsExp relOp rhsExp) = do
@@ -501,12 +526,13 @@ compileExp exp@(EOr lhsExp rhsExp) = do
     boolCode <- (compileBoolExp exp labelNext labelNext)
     return $ boolCode ++ (printLabel labelNext)
 
+compileExp e = do
+    traceShowM ("LOL wtf" ++ show e)
+    error ("wtf" ++ show e)
 --TODO different procedure for comparing strings - nope we treat string like in java
 compileBoolExp :: Expr -> Code -> Code -> Compile Code
 compileBoolExp e lTrue lFalse = do
     case e of
-        ELitTrue -> return $ push "$1"
-        ELitFalse -> return $ push "$0"
         Not exp -> compileBoolExp exp lFalse lTrue
         EAnd lhsExp rhsExp -> do
             lMid <- getNewLabel
@@ -536,6 +562,9 @@ compileBoolExp e lTrue lFalse = do
             let jmpFalse = jmp lFalse
             return $ concat [expCode, popLhsVar, popRhsVar, cmpCode, cmpJump, pushTrue, gotoEnd, lFalseLabel
                 ,pushFalse, jmpFalse]
+        _ -> do
+            expCode <- compileExp e
+            return $ concat [expCode, pop eax, cmp eax "$0", jnz lTrue, jmp lFalse]
 
 
 getVariableStackPos :: Ident -> Compile Code
@@ -551,16 +580,17 @@ getLValue (LVFunCall funcCall) = compileExp (EApp funcCall)
 getLValue (LVMethodCall (MCall lval funcCall)) = error "Shouldnt happen right now"
 getLValue (LVJustIdent ident) = do
     stackPos <- getVariableStackPos ident
-    return $ "lea (%ebp +" ++ stackPos ++ "), " ++ eax ++ "\n" ++ (push eax)
+    return $ "\tlea (%ebp + " ++ stackPos ++ "), " ++ eax ++ "\n" ++ (push eax)
 getLValue (LVArrayAcc arrElemAccess) = error "Array access inaccessible in basic mode"
 getLValue (LVAttrAcc attrAccess) = error "Attribute acces inaccessible in basic mode"
 
 
 
+clearBoolExpFromStack = "add 4, %esp"
 concatStrings = unlines [
-  "call __concat",
-  "add $8, %esp",
-  "pop %eax"
+  "\tcall __concat",
+  "\tadd 8, %esp",
+  "\tpop %eax"
   ]
 
 divideOp = pop ebx ++ pop eax ++ mov eax edx ++ instrL "sar $31, %edx"
@@ -591,7 +621,9 @@ getExpType ( EApp (FunctionCall ident exp)) = do
     let funcs = fEnv cEnv
     case M.lookup ident funcs of
         Just typ -> return typ
-        Nothing -> error ("Fatal, shouldnt happen lookup of function ident" ++ show ident)
+        Nothing -> do
+            traceShowM ("Funcs env EApp" ++ show funcs)
+            error ("Fatal, shouldnt happen lookup of function ident" ++ show ident)
 getExpType ( EString str) = return Str
 getExpType ( Neg exp) = return Bool
 getExpType ( Not exp) = return Bool
@@ -642,10 +674,10 @@ getNewLabel = do
     return $  "Label" ++  show lab
 
 printLabel :: Code -> Code
-printLabel label = label ++ ":" ++ endOfLine
+printLabel label = "." ++ label ++ ":" ++ endOfLine
 
 printGlobalFunLabel :: Ident -> Code
-printGlobalFunLabel (Ident ident) = "__" ++ ident ++ " :" ++ endOfLine
+printGlobalFunLabel (Ident ident) = "_" ++ ident ++ " :" ++ endOfLine
 
 eax = "%eax"
 ebx = "%ebx"
@@ -656,12 +688,12 @@ esp = "%esp"
 
 --reversed shit
 getRelOpCode :: RelOp -> Code
-getRelOpCode LE = "jge "
-getRelOpCode LTH = "jg "
-getRelOpCode GTH = "jle "
-getRelOpCode GE = "jl "
-getRelOpCode EQU = "jne "
-getRelOpCode NE = "je "
+getRelOpCode LE = "jg ."
+getRelOpCode LTH = "jge ."
+getRelOpCode GTH = "jle ."
+getRelOpCode GE = "jl ."
+getRelOpCode EQU = "jne ."
+getRelOpCode NE = "je ."
 
 
 instrGlobal :: Code -> Code
@@ -671,14 +703,15 @@ instrL inside = tabbed ++ inside ++ endOfLine
 tabbed = "\t"
 endOfLine = "\n"
 call (Ident str) = instrL $ ("call " ++ str)
-push src = "push " ++ src
+push src = instrL ("push " ++ src)
 pop src = instrL $ ("pop " ++ src)
 mov src dst = instrL $ ("mov " ++ src ++ ", " ++ dst)
 add lhs rhs = instrL $ ("add " ++ lhs ++ ", " ++ rhs)
 sub lhs rhs = instrL $ ("sub " ++ lhs ++ ", " ++ rhs)
 test src dst = instrL $ ("test " ++ src ++ ", " ++ dst)
 cmp src dst = instrL $ ("cmp " ++ src ++ ", " ++ dst)
-jmp label = instrL $ ("jmp " ++ printLabel(label))
+jmp label = instrL $ ("jmp ." ++ label)
+jnz label = instrL $ ("jnz ." ++ label)
 
 getSize :: Type -> Int
 getSize (Arr _) = 8

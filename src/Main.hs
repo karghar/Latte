@@ -3,6 +3,7 @@ module Main where
 
 import System.IO ( stdin, hGetContents, hPutStrLn, stderr )
 import System.Environment ( getArgs, getProgName )
+import System.Process
 import System.Exit
 import Control.Monad (when)
 import Control.Monad.State
@@ -14,6 +15,7 @@ import PrintLatte
 import AbsLatte
 import TypeChecker
 import Compiler
+import System.FilePath.Posix (dropExtension, replaceExtension, takeDirectory, dropFileName, takeFileName)
 
 
 
@@ -32,24 +34,32 @@ putStrV v s = when (v > 1) $ putStrLn s
 --runFile :: (Print a, Show a) => Verbosity -> ParseFun a -> FilePath -> IO ()
 --runFile v p f = putStrLn f >> readFile f >>= run v p
 
-run :: Verbosity -> String -> IO ()
-run v s = let ts = myLLexer s in case pProgram ts of
+run :: Verbosity -> String -> String -> IO ()
+run v path s  = let ts = myLLexer s in case pProgram ts of
            Bad s    -> do putStrLn "\nParse              Failed...\n"
                           putStrV v "Tokens:"
                           putStrV v $ show ts
                           putStrLn s
                           exitFailure
            Ok  tree -> do putStrLn "\nParse Successful!"
-                          showTree v tree
                           case evalTypes tree of
                                     Left error-> do
                                       hPutStrLn stderr $ "ERROR"
                                       putStrLn $ show error
                                       exitFailure
                                     Right _ -> do
-                                      hPutStrLn stderr $ "OK"
                                       let compiledCode = compilationProcess tree
+                                      let fileName = dropExtension $ takeFileName path
+                                      let outputFile = dropExtension path
+                                      let pathS =  replaceExtension path "s"
+                                      let directory = dropFileName path
+                                      let compileBash = "g++ -m32 -ggdb lib/runtime.o " ++ pathS ++ " -o " ++ outputFile
+                                      writeFile pathS compiledCode
+                                      putStrLn $ "Compile bash command: " ++ compileBash
+                                      putStrLn $ "Path " ++ path
                                       putStrLn compiledCode
+                                      systemHandler <- runCommand $ compileBash
+                                      waitForProcess systemHandler
                                       putStrLn "OK"
 --                                      compileProg prog
 
@@ -77,8 +87,8 @@ main = do
   args <- getArgs
   case args of
     ["--help"] -> usage
-    [] -> getContents >>= run 2
-    (path:[]) -> readFile path >>= run 2
+    [] -> getContents >>= run 2 ""
+    (path:[]) -> readFile path >>= run 2 path
     _ -> hPutStrLn stderr $ "Too many arguments"
 
 {-    "-s":fs -> mapM_ (runFile 0 pProgram) fs
