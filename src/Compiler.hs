@@ -338,7 +338,7 @@ compileStmt (CondElse exp lhsStmt rhsStmt) = do
     lhsStmtCode <- compileStmt (BStmt (Block [lhsStmt]))
     rhsStmtCode <- compileStmt (BStmt (Block [rhsStmt]))
     return $ concat [condExpCode, (printLabel labelLhsStmt), lhsStmtCode,
-        (printLabel labelRhsStmt), rhsStmtCode, (printLabel labelAfter)]
+         jmp labelAfter,(printLabel labelRhsStmt), rhsStmtCode, (printLabel labelAfter)]
 compileStmt (While exp stmt) = do
     labelCond <- getNewLabel
     labelStmt <- getNewLabel
@@ -460,7 +460,7 @@ compileExp (EString str) = do
     let stringLabels = strings cEnv
     case M.lookup str stringLabels of
         Just label -> do
-            return $ concat [ push  ("$" ++ label), call (Ident "__new_str"), pop eax, push eax ]
+            return $ concat [ push  ("$" ++ label), call (Ident "__new_str"), add "$4" esp, push eax]
         Nothing -> error ("Shouldnt happen, searching for string label:" ++ str)
 compileExp (Neg exp) = do
     expCode <- compileExp exp
