@@ -1,6 +1,6 @@
 module Compiler where
 
-import Control.Monad.State
+import Control.Monad.Trans.State
 
 import System.IO ( stdin, hGetContents, hPutStrLn, stderr )
 import System.Environment ( getArgs, getProgName )

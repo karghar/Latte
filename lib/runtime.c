@@ -1,7 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 void __printInt(int x) {
 	printf("%d\n", x);
 }
@@ -15,7 +11,7 @@ char* __readString() {
         char* ret;
         int default_size = 128;
         ret = malloc (default_size + 1);
-        getline(&ret, &default_size, stdin);
+        gets(&ret);
         ret[strlen(ret) - 1] = 0;
         return ret;
 }
@@ -36,7 +32,7 @@ char* __concat(char* s1, char* s2) {
 }
 
 char *__new_str(char *str) {
-	size_t len = strlen(str);
+	int len = strlen(str);
 	char *mem = malloc(len + 1); // if mem == NULL to sie wysralo
 	memcpy(mem, str, len+1);
 	return mem;

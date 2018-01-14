@@ -6,8 +6,8 @@ import System.Environment ( getArgs, getProgName )
 import System.Process
 import System.Exit
 import Control.Monad (when)
-import Control.Monad.State
-import Control.Monad.Except
+import Control.Monad.Trans.State
+import Control.Monad.Trans.Except
 import LexLatte
 import ParLatte
 import SkelLatte
@@ -52,9 +52,12 @@ run v path s  = let ts = myLLexer s in case pProgram ts of
                                       let fileName = dropExtension $ takeFileName path
                                       let outputFile = dropExtension path
                                       let pathS =  replaceExtension path "s"
+                                      let pathO = replaceExtension path "o"
                                       let directory = dropFileName path
-                                      let compileBash = "gcc -m32 -ggdb lib/runtime.o " ++ pathS ++ " -o " ++ outputFile
+                                      let compileBash = "ld -s -o " ++ outputFile ++ " -melf_i386 " ++  pathO ++ " lib/runtime.o -L. -l:lib/libc.a"
                                       writeFile pathS compiledCode
+                                      assemblerToO <- runCommand $ "as --32 " ++ pathS
+                                      waitForProcess assemblerToO
                                       putStrLn $ "Compile bash command: " ++ compileBash
                                       putStrLn $ "Path " ++ path
                                       putStrLn compiledCode
