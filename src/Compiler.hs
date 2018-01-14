@@ -589,8 +589,8 @@ getLValue (LVAttrAcc attrAccess) = error "Attribute acces inaccessible in basic 
 clearBoolExpFromStack = "add $4, %esp"
 concatStrings = unlines [
   "\tcall __concat",
-  "\tadd 8, %esp",
-  "\tpop %eax"
+  "\tadd $8, %esp",
+  "\tpush %eax"
   ]
 
 divideOp = pop ebx ++ pop eax ++ mov eax edx ++ instrL "sar $31, %edx"
