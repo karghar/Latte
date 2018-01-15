@@ -11,15 +11,14 @@ char* __readString() {
         char* ret;
         int default_size = 128;
         ret = malloc (default_size + 1);
-        gets(&ret);
-        ret[strlen(ret) - 1] = 0;
+        scanf( "%128[^\n]", &str);
+        //ret[strlen(ret) - 1] = 0;
         return ret;
 }
 
 int __readInt() {
 	int x;
-	char* str = __readString();
-	sscanf(str, "%d", &x);
+	scanf("%d\n",&x)
 
 	return x;
 }
