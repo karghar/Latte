@@ -6,17 +6,29 @@ void __printInt(int x) {
 void __printString(char* s) {
 	printf("%s\n", s);
 }
+typedef struct _iobuf
+{
+    char*   _ptr;
+    int _cnt;
+    char*   _base;
+     int _flag;
+     int _file;
+     int _charbuf;
+     int _bufsiz;
+     char*   _tmpfname;
+} FILE;
 
-
+extern FILE* stdin;
 char* __readString() {
         int default_size = 128;
 	char* ret ;
         ret = malloc (default_size + 1);
-        getline(&ret, &default_size, 0);
+        fgets(ret, default_size, stdin);
+	//getline(&ret, &default_size, stdin);
 	//fgets(ret, default_size, 0);
 	//gets(&ret);
 	//scanf( "%128[^\n]", &ret);
-        ret[strlen(ret) - 1] = 0;
+        ret[strlen(ret) - 1] = '\0';
         return ret;
 }
 
