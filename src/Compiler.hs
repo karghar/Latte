@@ -218,7 +218,7 @@ compileFunDef :: FuncDef -> Compile Code
 compileFunDef (FunDef _ ident args block) = do
     let functionStart = printGlobalFunLabel ident
     cEnv <- get
-    prepareFunArgs (reverse args) 4 -- first 4 is occupied by return address
+    prepareFunArgs args 4 -- first 4 is occupied by return address
 --    traceShowM ("Parsed function args")
     blockCode <- compileBlock block
 --    traceShowM ("After block")
@@ -389,7 +389,14 @@ compileDecl typ ((NoInit ident):rest) = do
             put (CEnv (M.insert ident (posTaken, typ) env_) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (modUtils))
             restCode <- compileDecl typ rest
             return $ concat [expCode, popEax, movValue, restCode]
-
+        Bool -> do
+            expCode <- compileExp (ELitTrue)
+            let posTaken = lastTakenSize - typSize
+            let modUtils = AsData (label $ utils $ cEnv) (posTaken)
+            let movValue = "\tmov %eax, " ++ show posTaken ++ "(%ebp)\n"
+            put (CEnv (M.insert ident (posTaken, typ) env_) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (modUtils))
+            restCode <- compileDecl typ rest
+            return $ concat [expCode, popEax, movValue, restCode]
 
         _ -> error ("fatal initiation of not basic type shouldnt happen right now" ++ show ident)
 compileDecl typ ((Init ident exp):rest) = do
@@ -438,7 +445,7 @@ compileExp (EApp (FunctionCall ident exprs)) = do
     let funcs = fEnv cEnv
     case M.lookup ident funcs of
         Just typ -> do
-            expsCodeArr <- mapM (compileExp) exprs
+            expsCodeArr <- mapM (compileExp) (reverse exprs)
             let expsCode = concat expsCodeArr
             let fnName = getFuncName ident
             let fnCode = concat [
@@ -488,7 +495,7 @@ compileExp (EAdd lhsExp Plus rhsExp) = do
         Int ->
             return $ expCode ++ pop eax ++ (instrL  ("add 0(%esp), " ++ eax)) ++ mov eax "0(%esp)"
         Str ->
-            return $ expCode ++ concatStrings
+            return $ rhsCode ++ lhsCode ++ concatStrings
         _ -> error "Shouldnt happen, shitty type when adding two exps"
 
 compileExp (EAdd lhsExp Minus rhsExp) = do
