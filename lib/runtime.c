@@ -20,16 +20,17 @@ typedef struct _iobuf
 
 extern FILE* stdin;
 char* __readString() {
-        int default_size = 128;
+    int default_size = 128;
 	char* ret ;
-        ret = malloc (default_size + 1);
-        fgets(ret, default_size, stdin);
+    ret = malloc (default_size + 1);
+    fgets(ret, default_size, stdin);
 	//getline(&ret, &default_size, stdin);
 	//fgets(ret, default_size, 0);
 	//gets(&ret);
 	//scanf( "%128[^\n]", &ret);
-        ret[strlen(ret) - 1] = '\0';
-        return ret;
+    ret[strlen(ret) - 1] = '\0';
+    
+    return ret;
 }
 
 int __readInt() {
@@ -40,6 +41,7 @@ int __readInt() {
 }
 
 extern int _main();
+
 char* __concat(char* s1, char* s2) {
 	unsigned int l1 = strlen(s1);
 	unsigned int l2 = strlen(s2);
@@ -59,7 +61,7 @@ void _start() {
 
 char *__new_str(char *str) {
 	int len = strlen(str);
-	char *mem = malloc(len + 1); // if mem == NULL to sie wysralo
+	char *mem = malloc(len + 1); // if mem == NULL to sie wywalilo
 	memcpy(mem, str, len+1);
 	return mem;
 }

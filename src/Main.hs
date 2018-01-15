@@ -58,12 +58,12 @@ run v path s  = let ts = myLLexer s in case pProgram ts of
                                       writeFile pathS compiledCode
                                       let assemblyToOCmd = "as --32 " ++ pathS ++ " -o " ++ pathO
                                       assemblerToO <- runCommand $ assemblyToOCmd
-                                      putStrLn $ assemblyToOCmd
+                                      -- putStrLn $ assemblyToOCmd
                                       waitForProcess assemblerToO
                                       putStrLn $ "Compile bash command: " ++ compileBash
                                       putStrLn $ "Path " ++ path
-                                      putStrLn compileBash
-                                      putStrLn compiledCode
+                                      -- putStrLn compileBash
+                                      -- putStrLn compiledCode
                                       systemHandler <- runCommand $ compileBash
                                       waitForProcess systemHandler
                                       putStrLn "OK"
