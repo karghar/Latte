@@ -1,3 +1,4 @@
+//#include<string.h>
 void __printInt(int x) {
 	printf("%d\n", x);
 }
@@ -8,17 +9,20 @@ void __printString(char* s) {
 
 
 char* __readString() {
-        char* ret;
         int default_size = 128;
+	char* ret ;
         ret = malloc (default_size + 1);
-        scanf( "%128[^\n]", &str);
-        //ret[strlen(ret) - 1] = 0;
+        getline(&ret, &default_size, 0);
+	//fgets(ret, default_size, 0);
+	//gets(&ret);
+	//scanf( "%128[^\n]", &ret);
+        ret[strlen(ret) - 1] = 0;
         return ret;
 }
 
 int __readInt() {
 	int x;
-	scanf("%d\n",&x)
+	scanf("%d\n",&x);
 
 	return x;
 }
