@@ -439,7 +439,7 @@ compileExp (EApp (FunctionCall ident exprs)) = do
     let funcs = fEnv cEnv
     case M.lookup ident funcs of
         Just typ -> do
-            expsCodeArr <- mapM (compileExp) (reverse exprs)
+            expsCodeArr <- mapM (compileExp) exprs
             let expsCode = concat expsCodeArr
             let fnName = getFuncName ident
             let fnCode = concat [
@@ -497,11 +497,16 @@ compileExp (EAdd lhsExp Minus rhsExp) = do
     rhsCode <- compileExp rhsExp
     return $ concat [lhsCode, rhsCode, pop eax, pop ecx, sub eax ecx, push ecx]
 
---TODO different procedure for comparing strings, strings treated like in java
-compileExp exp@(ERel lhsExp relOp rhsExp) = do
-    labelNext <- getNewLabel
-    boolCode <- (compileBoolExp exp labelNext labelNext)
-    return $ boolCode ++ (printLabel labelNext)
+--only logic expressions hit here
+compileExp exp = do
+    lTrue <- getNewLabel
+    lFalse <- getNewLabel
+    lAfter <- getNewLabel
+    expCode <- compileBoolExp exp lTrue lFalse
+    let pushTT = printLabel lTrue ++ push "$1" ++ jmp lAfter
+    let pushFalse = printLabel lFalse ++ push "$0"
+    return $ concat [expCode, pushTT, pushFalse, printLabel lAfter]
+    
 
 --previous  version - pain in the ass
 --    lhsCode <- compileExp lhsExp
@@ -516,19 +521,10 @@ compileExp exp@(ERel lhsExp relOp rhsExp) = do
 --    return $ expCode ++ cmp ++ relOpCode ++ labTrue ++ pushFalse ++ labEnd ++ endOfLine
 --            ++ (printLabel labTrue) ++ pushTrue ++ (printLabel labEnd)
 
-compileExp exp@(EAnd lhsExp rhsExp) = do
-    labelNext <- getNewLabel
-    boolCode <- (compileBoolExp exp labelNext labelNext)
-    return $ boolCode ++ (printLabel labelNext)
 
-compileExp exp@(EOr lhsExp rhsExp) = do
-    labelNext <- getNewLabel
-    boolCode <- (compileBoolExp exp labelNext labelNext)
-    return $ boolCode ++ (printLabel labelNext)
-
-compileExp e = do
-    traceShowM ("LOL wtf" ++ show e)
-    error ("wtf" ++ show e)
+-- compileExp e = do
+--     traceShowM ("LOL wtf" ++ show e)
+--     error ("wtf" ++ show e)
 --TODO different procedure for comparing strings - nope we treat string like in java
 compileBoolExp :: Expr -> Code -> Code -> Compile Code
 compileBoolExp e lTrue lFalse = do
