@@ -34,7 +34,6 @@ data AsData = AsData
            {
              label :: Int
            , stackSize :: Int
-           , tempLabel :: Int
            }
 
 -- klasy $
@@ -53,7 +52,7 @@ initStore :: CEnv
 initStore = CEnv M.empty M.empty M.empty M.empty initAsData
 
 initAsData :: AsData
-initAsData = AsData 0 0 0
+initAsData = AsData 0 0
 
 prolog :: Code
 prolog = unlines [
@@ -225,7 +224,7 @@ compileFunDef (FunDef _ ident args block) = do
 --    traceShowM ("After block")
     cEnv' <- get
     let lab = label $ utils $ cEnv'
-    let modUtils = AsData lab (stackSize $ utils $ cEnv) (tempLabel $ utils $ cEnv)
+    let modUtils = AsData lab (stackSize $ utils $ cEnv)
     put (CEnv (env cEnv) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (modUtils))
     let functionCode = functionStart ++ functionEntry ++ blockCode
     lastStmtRet <- functionEndsWithRet block
@@ -300,7 +299,7 @@ compileStmt (BStmt (Block stmts)) = do
     stmtsCodeArr <- mapM (compileStmt) stmts
     cEnv' <- get
     let labelAfter = label $ utils $ cEnv'
-    let modUtils = AsData (labelAfter) (stackSize $ utils $ cEnv) (tempLabel $ utils $ cEnv)
+    let modUtils = AsData (labelAfter) (stackSize $ utils $ cEnv)
     put (CEnv (env cEnv) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (modUtils))
     return $ concat $ stmtsCodeArr
 compileStmt (Decl typ items) = do
@@ -376,7 +375,7 @@ compileDecl typ ((NoInit ident):rest) = do
         Int -> do
             expCode <- compileExp (ELitInt 0) -- mov 0 pod ten adres i tyle
             let posTaken = lastTakenSize - typSize
-            let modUtils = AsData (label $ utils $ cEnv) (posTaken) (tempLabel $ utils $ cEnv)
+            let modUtils = AsData (label $ utils $ cEnv) (posTaken)
             let movValue = "\tmov %eax, " ++ show posTaken ++ "(%ebp)\n"
             put (CEnv (M.insert ident (posTaken, typ) env_) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (modUtils))
             restCode <- compileDecl typ rest
@@ -385,7 +384,7 @@ compileDecl typ ((NoInit ident):rest) = do
         Str -> do
             expCode <- compileExp (EString "")
             let posTaken = lastTakenSize - typSize
-            let modUtils = AsData (label $ utils $ cEnv) (posTaken) (tempLabel $ utils $ cEnv)
+            let modUtils = AsData (label $ utils $ cEnv) (posTaken)
             let movValue = "\tmov %eax, " ++ show posTaken ++ "(%ebp)\n"
             put (CEnv (M.insert ident (posTaken, typ) env_) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (modUtils))
             restCode <- compileDecl typ rest
@@ -402,7 +401,7 @@ compileDecl typ ((Init ident exp):rest) = do
     let popPos = pop ecx
     expCode <- compileExp exp
     let posTaken = lastTakenSize - typSize
-    let modUtils = AsData (label $ utils $ cEnv) (posTaken) (tempLabel $ utils $ cEnv)
+    let modUtils = AsData (label $ utils $ cEnv) (posTaken)
     let movValue = "\tmov %eax, " ++ show posTaken ++ "(%ebp)\n"
     put (CEnv (M.insert ident (posTaken,typ ) env_) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (modUtils))
     restCode <- compileDecl typ rest
@@ -666,7 +665,7 @@ getNewLabel = do
     let util = utils cEnv
     let lab = label util
     let labinc = lab + 1
-    put (CEnv (env cEnv) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (AsData (labinc) (stackSize util) (tempLabel util)))
+    put (CEnv (env cEnv) (strings cEnv) (fEnv cEnv) (clsEnv cEnv) (AsData (labinc) (stackSize util)))
     return $  "Label" ++  show lab
 
 printLabel :: Code -> Code
