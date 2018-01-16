@@ -36,12 +36,13 @@ putStrV v s = when (v > 1) $ putStrLn s
 
 run :: Verbosity -> String -> String -> IO ()
 run v path s  = let ts = myLLexer s in case pProgram ts of
-           Bad s    -> do putStrLn "\nParse              Failed...\n"
+           Bad s    -> do hPutStrLn stderr $ "ERROR"
+                          putStrLn "\nParse              Failed...\n"
                           putStrV v "Tokens:"
                           putStrV v $ show ts
                           putStrLn s
                           exitFailure
-           Ok  tree -> do putStrLn "\nParse Successful!"
+           Ok  tree -> do
                           case evalTypes tree of
                                     Left error-> do
                                       hPutStrLn stderr $ "ERROR"
@@ -64,7 +65,7 @@ run v path s  = let ts = myLLexer s in case pProgram ts of
                                       -- putStrLn compiledCode
                                       systemHandler <- runCommand $ compileBash
                                       waitForProcess systemHandler
-                                      putStrLn "OK"
+                                      hPutStrLn stderr $ "OK"
 --                                      compileProg prog
 
 

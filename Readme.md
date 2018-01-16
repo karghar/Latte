@@ -17,3 +17,7 @@ Extensions have only been implemented in TypeChecker.
 
 Compilation:
 Makefile in root catalogue
+
+Runtime.c :
+
+I do not hold any responsibility if you try to use is somewhere else than students.
