@@ -60,8 +60,6 @@ run v path s  = let ts = myLLexer s in case pProgram ts of
                                       assemblerToO <- runCommand $ assemblyToOCmd
                                       -- putStrLn $ assemblyToOCmd
                                       waitForProcess assemblerToO
-                                      putStrLn $ "Compile bash command: " ++ compileBash
-                                      putStrLn $ "Path " ++ path
                                       -- putStrLn compileBash
                                       -- putStrLn compiledCode
                                       systemHandler <- runCommand $ compileBash
